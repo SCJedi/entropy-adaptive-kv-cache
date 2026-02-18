@@ -1,0 +1,334 @@
+// This Pine Script(TM) source code is subject to the terms of the Mozilla Public License 2.0
+// https://mozilla.org/MPL/2.0/
+// MVSU Multi-Pair Decontamination Indicator
+// Based on the Inhibitory Dual-Channel Decontamination principle (MVSU architecture)
+// Each pair of indicator channels is cross-subtracted to remove self-referential contamination.
+
+//@version=5
+indicator("MVSU Decontamination", shorttitle="MVSU Decon", overlay=false, max_lines_count=500)
+
+// ============================================================================
+// USER INPUTS
+// ============================================================================
+
+// --- Channel Toggles ---
+grp_ch = "Channel Toggles"
+use_A = input.bool(true, "A: RSI (momentum)", group=grp_ch)
+use_B = input.bool(true, "B: Stochastic (mean-reversion)", group=grp_ch)
+use_C = input.bool(true, "C: MACD Histogram (trend accel)", group=grp_ch)
+use_D = input.bool(true, "D: MFI (volume-weighted)", group=grp_ch)
+use_E = input.bool(true, "E: ADX Net Direction (trend str)", group=grp_ch)
+
+// --- Cross-Weight Mode ---
+grp_wc = "Cross-Weight Settings"
+wc_mode = input.string("Fixed", "w_cross Mode", options=["Fixed", "Adaptive"], group=grp_wc)
+wc_fixed = input.float(-0.25, "Fixed w_cross", minval=-1.0, maxval=0.0, step=0.05, group=grp_wc)
+wc_window = input.int(50, "Adaptive Window", minval=10, maxval=500, group=grp_wc)
+
+// --- Signal Settings ---
+grp_sig = "Signal Settings"
+ema_period = input.int(5, "Signal Smoothing (EMA)", minval=1, maxval=50, group=grp_sig)
+buy_thresh = input.float(0.3, "Buy Threshold", minval=0.0, maxval=1.0, step=0.05, group=grp_sig)
+sell_thresh = input.float(-0.3, "Sell Threshold", minval=-1.0, maxval=0.0, step=0.05, group=grp_sig)
+
+// --- Display ---
+grp_disp = "Display"
+show_pairs = input.bool(false, "Show Individual Pair Signals", group=grp_disp)
+show_table = input.bool(true, "Show w_cross Table", group=grp_disp)
+
+// ============================================================================
+// CHANNEL COMPUTATION -- Normalize each to [-1, 1]
+// ============================================================================
+
+// A: RSI(14) -- normalized from [0,100] to [-1,1]
+raw_rsi = ta.rsi(close, 14)
+ch_A = (raw_rsi - 50.0) / 50.0
+
+// B: Stochastic %K(14,3,3) -- normalized from [0,100] to [-1,1]
+raw_stoch = ta.stoch(close, high, low, 14)
+ch_B = (raw_stoch - 50.0) / 50.0
+
+// C: MACD histogram -- normalized by adaptive scaling
+[macd_line, macd_signal, macd_hist] = ta.macd(close, 12, 26, 9)
+macd_abs_max = ta.highest(math.abs(macd_hist), 100)
+macd_scale = macd_abs_max > 0 ? macd_abs_max : 1.0
+ch_C = math.max(-1.0, math.min(1.0, macd_hist / macd_scale))
+
+// D: MFI(14) -- normalized from [0,100] to [-1,1]
+raw_mfi = ta.mfi(hlc3, 14)
+ch_D = (raw_mfi - 50.0) / 50.0
+
+// E: ADX net direction (+DI - -DI) -- normalized by ADX magnitude
+[diplus, diminus, adx_val] = ta.dmi(14, 14)
+di_net = diplus - diminus
+di_scale = math.max(adx_val, 1.0)
+ch_E = math.max(-1.0, math.min(1.0, di_net / di_scale))
+
+// ============================================================================
+// ADAPTIVE w_cross: rolling correlation as proxy for contamination overlap
+// ============================================================================
+
+// For adaptive mode, w_cross = -abs(correlation(X, Y, window)) * 0.5
+// Rationale: higher correlation implies more shared contamination to subtract.
+// The factor 0.5 keeps w_cross in a sensible range [-0.5, 0].
+
+f_wcross(float x, float y) =>
+    if wc_mode == "Fixed"
+        wc_fixed
+    else
+        corr = ta.correlation(x, y, wc_window)
+        safe_corr = na(corr) ? 0.0 : corr
+        -math.abs(safe_corr) * 0.5
+
+// ============================================================================
+// PAIRWISE MVSU DECONTAMINATION -- 10 pairs from 5 channels (C(5,2) = 10)
+// ============================================================================
+
+// Pair activity flags (both channels must be enabled)
+p_AB = use_A and use_B
+p_AC = use_A and use_C
+p_AD = use_A and use_D
+p_AE = use_A and use_E
+p_BC = use_B and use_C
+p_BD = use_B and use_D
+p_BE = use_B and use_E
+p_CD = use_C and use_D
+p_CE = use_C and use_E
+p_DE = use_D and use_E
+
+// Compute w_cross for each active pair
+wc_AB = p_AB ? f_wcross(ch_A, ch_B) : 0.0
+wc_AC = p_AC ? f_wcross(ch_A, ch_C) : 0.0
+wc_AD = p_AD ? f_wcross(ch_A, ch_D) : 0.0
+wc_AE = p_AE ? f_wcross(ch_A, ch_E) : 0.0
+wc_BC = p_BC ? f_wcross(ch_B, ch_C) : 0.0
+wc_BD = p_BD ? f_wcross(ch_B, ch_D) : 0.0
+wc_BE = p_BE ? f_wcross(ch_B, ch_E) : 0.0
+wc_CD = p_CD ? f_wcross(ch_C, ch_D) : 0.0
+wc_CE = p_CE ? f_wcross(ch_C, ch_E) : 0.0
+wc_DE = p_DE ? f_wcross(ch_D, ch_E) : 0.0
+
+// Decontaminated signal for each pair: decon = X + w_cross * Y
+// This is the simplified form from the recipe: output_A + w_cross * output_B
+sig_AB = p_AB ? ch_A + wc_AB * ch_B : na
+sig_AC = p_AC ? ch_A + wc_AC * ch_C : na
+sig_AD = p_AD ? ch_A + wc_AD * ch_D : na
+sig_AE = p_AE ? ch_A + wc_AE * ch_E : na
+sig_BC = p_BC ? ch_B + wc_BC * ch_C : na
+sig_BD = p_BD ? ch_B + wc_BD * ch_D : na
+sig_BE = p_BE ? ch_B + wc_BE * ch_E : na
+sig_CD = p_CD ? ch_C + wc_CD * ch_D : na
+sig_CE = p_CE ? ch_C + wc_CE * ch_E : na
+sig_DE = p_DE ? ch_D + wc_DE * ch_E : na
+
+// ============================================================================
+// SIGNAL AGGREGATION -- weighted average by |w_cross|, then EMA smooth
+// ============================================================================
+
+// Accumulate weighted sum and total weight across active pairs
+w_sum = 0.0
+w_total = 0.0
+
+w_sum  := p_AB ? w_sum  + math.abs(wc_AB) * nz(sig_AB) : w_sum
+w_total := p_AB ? w_total + math.abs(wc_AB) : w_total
+
+w_sum  := p_AC ? w_sum  + math.abs(wc_AC) * nz(sig_AC) : w_sum
+w_total := p_AC ? w_total + math.abs(wc_AC) : w_total
+
+w_sum  := p_AD ? w_sum  + math.abs(wc_AD) * nz(sig_AD) : w_sum
+w_total := p_AD ? w_total + math.abs(wc_AD) : w_total
+
+w_sum  := p_AE ? w_sum  + math.abs(wc_AE) * nz(sig_AE) : w_sum
+w_total := p_AE ? w_total + math.abs(wc_AE) : w_total
+
+w_sum  := p_BC ? w_sum  + math.abs(wc_BC) * nz(sig_BC) : w_sum
+w_total := p_BC ? w_total + math.abs(wc_BC) : w_total
+
+w_sum  := p_BD ? w_sum  + math.abs(wc_BD) * nz(sig_BD) : w_sum
+w_total := p_BD ? w_total + math.abs(wc_BD) : w_total
+
+w_sum  := p_BE ? w_sum  + math.abs(wc_BE) * nz(sig_BE) : w_sum
+w_total := p_BE ? w_total + math.abs(wc_BE) : w_total
+
+w_sum  := p_CD ? w_sum  + math.abs(wc_CD) * nz(sig_CD) : w_sum
+w_total := p_CD ? w_total + math.abs(wc_CD) : w_total
+
+w_sum  := p_CE ? w_sum  + math.abs(wc_CE) * nz(sig_CE) : w_sum
+w_total := p_CE ? w_total + math.abs(wc_CE) : w_total
+
+w_sum  := p_DE ? w_sum  + math.abs(wc_DE) * nz(sig_DE) : w_sum
+w_total := p_DE ? w_total + math.abs(wc_DE) : w_total
+
+// Weighted average of decontaminated pair signals
+raw_combined = w_total > 0 ? w_sum / w_total : 0.0
+
+// EMA smoothing
+combined = ta.ema(raw_combined, ema_period)
+
+// ============================================================================
+// CONSENSUS DETECTION -- fraction of active pairs agreeing on direction
+// ============================================================================
+
+bull_count = 0
+bear_count = 0
+pair_count = 0
+
+bull_count := p_AB ? bull_count + (nz(sig_AB) > 0 ? 1 : 0) : bull_count
+bear_count := p_AB ? bear_count + (nz(sig_AB) < 0 ? 1 : 0) : bear_count
+pair_count := p_AB ? pair_count + 1 : pair_count
+
+bull_count := p_AC ? bull_count + (nz(sig_AC) > 0 ? 1 : 0) : bull_count
+bear_count := p_AC ? bear_count + (nz(sig_AC) < 0 ? 1 : 0) : bear_count
+pair_count := p_AC ? pair_count + 1 : pair_count
+
+bull_count := p_AD ? bull_count + (nz(sig_AD) > 0 ? 1 : 0) : bull_count
+bear_count := p_AD ? bear_count + (nz(sig_AD) < 0 ? 1 : 0) : bear_count
+pair_count := p_AD ? pair_count + 1 : pair_count
+
+bull_count := p_AE ? bull_count + (nz(sig_AE) > 0 ? 1 : 0) : bull_count
+bear_count := p_AE ? bear_count + (nz(sig_AE) < 0 ? 1 : 0) : bear_count
+pair_count := p_AE ? pair_count + 1 : pair_count
+
+bull_count := p_BC ? bull_count + (nz(sig_BC) > 0 ? 1 : 0) : bull_count
+bear_count := p_BC ? bear_count + (nz(sig_BC) < 0 ? 1 : 0) : bear_count
+pair_count := p_BC ? pair_count + 1 : pair_count
+
+bull_count := p_BD ? bull_count + (nz(sig_BD) > 0 ? 1 : 0) : bull_count
+bear_count := p_BD ? bear_count + (nz(sig_BD) < 0 ? 1 : 0) : bear_count
+pair_count := p_BD ? pair_count + 1 : pair_count
+
+bull_count := p_BE ? bull_count + (nz(sig_BE) > 0 ? 1 : 0) : bull_count
+bear_count := p_BE ? bear_count + (nz(sig_BE) < 0 ? 1 : 0) : bear_count
+pair_count := p_BE ? pair_count + 1 : pair_count
+
+bull_count := p_CD ? bull_count + (nz(sig_CD) > 0 ? 1 : 0) : bull_count
+bear_count := p_CD ? bear_count + (nz(sig_CD) < 0 ? 1 : 0) : bear_count
+pair_count := p_CD ? pair_count + 1 : pair_count
+
+bull_count := p_CE ? bull_count + (nz(sig_CE) > 0 ? 1 : 0) : bull_count
+bear_count := p_CE ? bear_count + (nz(sig_CE) < 0 ? 1 : 0) : bear_count
+pair_count := p_CE ? pair_count + 1 : pair_count
+
+bull_count := p_DE ? bull_count + (nz(sig_DE) > 0 ? 1 : 0) : bull_count
+bear_count := p_DE ? bear_count + (nz(sig_DE) < 0 ? 1 : 0) : bear_count
+pair_count := p_DE ? pair_count + 1 : pair_count
+
+bull_pct = pair_count > 0 ? bull_count * 100.0 / pair_count : 0.0
+bear_pct = pair_count > 0 ? bear_count * 100.0 / pair_count : 0.0
+consensus_bull = bull_pct >= 70.0
+consensus_bear = bear_pct >= 70.0
+
+// ============================================================================
+// VISUALIZATION
+// ============================================================================
+
+// --- Main combined signal ---
+plot(combined, "MVSU Combined", color=color.new(color.white, 0), linewidth=2)
+hline(buy_thresh, "Buy Threshold", color=color.green, linestyle=hline.style_dashed)
+hline(sell_thresh, "Sell Threshold", color=color.red, linestyle=hline.style_dashed)
+hline(0, "Zero Line", color=color.gray, linestyle=hline.style_dotted)
+
+// Background shading for threshold zones
+bgcolor(combined > buy_thresh ? color.new(color.green, 90) : na, title="Buy Zone")
+bgcolor(combined < sell_thresh ? color.new(color.red, 90) : na, title="Sell Zone")
+
+// Consensus background
+bgcolor(consensus_bull ? color.new(color.lime, 85) : na, title="Bull Consensus")
+bgcolor(consensus_bear ? color.new(color.fuchsia, 85) : na, title="Bear Consensus")
+
+// --- Individual pair signals (toggleable) ---
+plot(show_pairs and p_AB ? sig_AB : na, "Pair AB (RSI-Stoch)", color=color.new(color.aqua, 60))
+plot(show_pairs and p_AC ? sig_AC : na, "Pair AC (RSI-MACD)", color=color.new(color.blue, 60))
+plot(show_pairs and p_AD ? sig_AD : na, "Pair AD (RSI-MFI)", color=color.new(color.purple, 60))
+plot(show_pairs and p_AE ? sig_AE : na, "Pair AE (RSI-ADX)", color=color.new(color.orange, 60))
+plot(show_pairs and p_BC ? sig_BC : na, "Pair BC (Stoch-MACD)", color=color.new(color.yellow, 60))
+plot(show_pairs and p_BD ? sig_BD : na, "Pair BD (Stoch-MFI)", color=color.new(color.teal, 60))
+plot(show_pairs and p_BE ? sig_BE : na, "Pair BE (Stoch-ADX)", color=color.new(color.olive, 60))
+plot(show_pairs and p_CD ? sig_CD : na, "Pair CD (MACD-MFI)", color=color.new(color.maroon, 60))
+plot(show_pairs and p_CE ? sig_CE : na, "Pair CE (MACD-ADX)", color=color.new(color.silver, 60))
+plot(show_pairs and p_DE ? sig_DE : na, "Pair DE (MFI-ADX)", color=color.new(color.lime, 60))
+
+// ============================================================================
+// DIAGNOSTIC TABLE -- w_cross values for each active pair
+// ============================================================================
+
+// Helper: color w_cross by severity (more negative = more contamination removed)
+f_wc_color(float wc) =>
+    wc < -0.6 ? color.red : wc < -0.3 ? color.orange : wc < -0.1 ? color.yellow : color.green
+
+// Table declared at global scope with var for persistence
+var table tbl = table.new(position.top_right, 3, 12, bgcolor=color.new(color.black, 20), border_width=1)
+
+if show_table and barstate.islast
+    // Header
+    table.cell(tbl, 0, 0, "Pair", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(tbl, 1, 0, "w_cross", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+    table.cell(tbl, 2, 0, "Signal", text_color=color.white, text_size=size.small, bgcolor=color.new(color.gray, 40))
+
+    // Fixed row positions for each pair (1-10), summary at 11
+    // Using fixed rows avoids mutable row counter issues in Pine Script
+    if p_AB
+        table.cell(tbl, 0, 1, "AB", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 1, str.tostring(wc_AB, "#.###"), text_color=f_wc_color(wc_AB), text_size=size.tiny)
+        table.cell(tbl, 2, 1, str.tostring(nz(sig_AB), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_AC
+        table.cell(tbl, 0, 2, "AC", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 2, str.tostring(wc_AC, "#.###"), text_color=f_wc_color(wc_AC), text_size=size.tiny)
+        table.cell(tbl, 2, 2, str.tostring(nz(sig_AC), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_AD
+        table.cell(tbl, 0, 3, "AD", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 3, str.tostring(wc_AD, "#.###"), text_color=f_wc_color(wc_AD), text_size=size.tiny)
+        table.cell(tbl, 2, 3, str.tostring(nz(sig_AD), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_AE
+        table.cell(tbl, 0, 4, "AE", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 4, str.tostring(wc_AE, "#.###"), text_color=f_wc_color(wc_AE), text_size=size.tiny)
+        table.cell(tbl, 2, 4, str.tostring(nz(sig_AE), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_BC
+        table.cell(tbl, 0, 5, "BC", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 5, str.tostring(wc_BC, "#.###"), text_color=f_wc_color(wc_BC), text_size=size.tiny)
+        table.cell(tbl, 2, 5, str.tostring(nz(sig_BC), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_BD
+        table.cell(tbl, 0, 6, "BD", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 6, str.tostring(wc_BD, "#.###"), text_color=f_wc_color(wc_BD), text_size=size.tiny)
+        table.cell(tbl, 2, 6, str.tostring(nz(sig_BD), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_BE
+        table.cell(tbl, 0, 7, "BE", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 7, str.tostring(wc_BE, "#.###"), text_color=f_wc_color(wc_BE), text_size=size.tiny)
+        table.cell(tbl, 2, 7, str.tostring(nz(sig_BE), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_CD
+        table.cell(tbl, 0, 8, "CD", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 8, str.tostring(wc_CD, "#.###"), text_color=f_wc_color(wc_CD), text_size=size.tiny)
+        table.cell(tbl, 2, 8, str.tostring(nz(sig_CD), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_CE
+        table.cell(tbl, 0, 9, "CE", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 9, str.tostring(wc_CE, "#.###"), text_color=f_wc_color(wc_CE), text_size=size.tiny)
+        table.cell(tbl, 2, 9, str.tostring(nz(sig_CE), "#.###"), text_color=color.white, text_size=size.tiny)
+    if p_DE
+        table.cell(tbl, 0, 10, "DE", text_color=color.white, text_size=size.tiny)
+        table.cell(tbl, 1, 10, str.tostring(wc_DE, "#.###"), text_color=f_wc_color(wc_DE), text_size=size.tiny)
+        table.cell(tbl, 2, 10, str.tostring(nz(sig_DE), "#.###"), text_color=color.white, text_size=size.tiny)
+
+    // Summary row (always at row 11)
+    table.cell(tbl, 0, 11, "TOTAL", text_color=color.yellow, text_size=size.tiny, bgcolor=color.new(color.gray, 40))
+    table.cell(tbl, 1, 11, str.tostring(pair_count) + " pairs", text_color=color.yellow, text_size=size.tiny, bgcolor=color.new(color.gray, 40))
+    table.cell(tbl, 2, 11, str.tostring(combined, "#.###"), text_color=color.yellow, text_size=size.tiny, bgcolor=color.new(color.gray, 40))
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+// Buy signal: combined crosses above buy threshold
+alertcondition(ta.crossover(combined, buy_thresh), title="MVSU Buy Signal", message="MVSU: Signal crossed above buy threshold")
+
+// Sell signal: combined crosses below sell threshold
+alertcondition(ta.crossunder(combined, sell_thresh), title="MVSU Sell Signal", message="MVSU: Signal crossed below sell threshold")
+
+// Bull consensus: >70% of active pairs agree bullish
+alertcondition(consensus_bull, title="MVSU Bull Consensus", message="MVSU: >70% of pairs agree bullish")
+
+// Bear consensus: >70% of active pairs agree bearish
+alertcondition(consensus_bear, title="MVSU Bear Consensus", message="MVSU: >70% of pairs agree bearish")
+
+// ============================================================================
+// END
+// ============================================================================

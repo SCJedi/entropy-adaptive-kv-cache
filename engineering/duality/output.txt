@@ -1,0 +1,137 @@
+================================================================================
+CURVATURE-DEPENDENT VACUUM TRANSITION ANALYSIS
+================================================================================
+
+Particle mass: 2.31 meV (lightest neutrino)
+Compton wavelength: 8.542e-05 m
+Planck length: 1.616e-35 m
+lambda_C/l_P: 5.286e+30
+
+================================================================================
+COSMOLOGICAL EPOCHS
+================================================================================
+
+Current universe (z=0):
+  R = 6.462e-52 m^-2
+  xi = 4.716e-60
+  Regime: cell
+
+Recombination (z=1000, matter-dominated):
+  R = 6.482e-43 m^-2
+  xi = 4.730e-51
+  Regime: cell
+
+Early radiation era (z=10^9):
+  R = 6.462e-16 m^-2
+  xi = 4.716e-24
+  Regime: cell
+
+================================================================================
+VACUUM TRANSITION MASS
+================================================================================
+Transition at xi = 1:
+  M_trans = 5.783e-08 M_sun
+  M_trans = 1.150e+23 kg
+
+================================================================================
+BLACK HOLE MASS SURVEY
+================================================================================
+
+M (M_sun)       xi              S/S_BH          Regime         
+------------------------------------------------------------
+1.00e+00        3.345e-15       5.364e-52       cell           
+1.00e+01        3.345e-17       5.364e-52       cell           
+1.00e+02        3.345e-19       5.364e-52       cell           
+1.00e+03        3.345e-21       5.364e-52       cell           
+1.00e+04        3.345e-23       5.364e-52       cell           
+1.00e+05        3.345e-25       5.364e-52       cell           
+1.00e+06        3.345e-27       5.364e-52       cell           
+1.00e+07        3.345e-29       5.364e-52       cell           
+1.00e+08        3.345e-31       5.364e-52       cell           
+1.00e+09        3.345e-33       5.364e-52       cell           
+
+================================================================================
+EQUATION OF STATE INTERPOLATION
+================================================================================
+
+For alpha^2 = 0.5:
+lambda     w          Product State? 
+-----------------------------------
+0.0        -1.0000    False          
+0.1        -0.9901    True           
+0.2        -0.9615    True           
+0.3        -0.9174    True           
+0.4        -0.8621    True           
+0.5        -0.8000    True           
+0.6        -0.7353    True           
+0.7        -0.6711    True           
+0.8        -0.6098    True           
+0.9        -0.5525    True           
+1.0        -0.5000    True           
+
+================================================================================
+KEY FINDINGS
+================================================================================
+
+CRITICAL FINDING: Entanglement Discontinuity
+
+The interpolating state family |Psi(lambda)> = D(lambda*alpha)|0> exhibits a
+DISCONTINUOUS entanglement structure:
+
+- lambda = 0 (mode vacuum): State is |0>, which is entangled across modes
+  Entanglement entropy: S ~ A/eps^2 (area law)
+
+- lambda > 0 (any displacement): State is D(lambda*alpha)|0> = tensor_n D(lambda*alpha_n)|0_n>
+  This is a PRODUCT state across cells
+  Entanglement entropy: S = 0
+
+IMPLICATION: The transition is NOT smooth in entanglement. There is a
+discontinuous jump at lambda = 0. This suggests the transition is more like a
+phase transition than a smooth crossover.
+
+The equation of state w(lambda) DOES interpolate smoothly from -1 to a value
+approaching 0 as lambda increases (though it asymptotes to -1/2 for alpha^2=1/2, not 0).
+
+The true w=0 for cell vacuum comes from TIME AVERAGING the oscillating
+displacement, not from the static displaced state.
+
+
+CRITICAL FINDING: Entropy Tension NOT Resolved
+
+Question: Does using Compton wavelength as UV cutoff reproduce S_BH?
+
+For particle mass m = 2.31 meV (lightest neutrino):
+  lambda_C = 8.542e-05 m
+  l_P = 1.616e-35 m
+  lambda_C/l_P = 5.286e+30
+
+The Compton wavelength is 5e+30 times LARGER than the Planck length.
+
+For mode vacuum entropy S ~ A/(4*eps^2) with eps = lambda_C:
+  S/S_BH = (l_P/lambda_C)^2 = 3.579e-62
+
+The entropy is MUCH SMALLER than Bekenstein-Hawking by a factor of ~4e-62.
+
+CONCLUSION: The naive transition picture with Compton-scale cutoff does NOT
+reproduce the correct black hole entropy. The cutoff would need to be Planck
+scale, which requires m ~ m_Planck, NOT m ~ meV.
+
+This is a FAILURE of the framework to resolve the entropy tension.
+
+Possible resolutions:
+1. Different particle mass dominates near horizon (effective m ~ m_P?)
+2. Transition criterion is wrong (not R*lambda_C^2 ~ 1)
+3. Entanglement entropy formula needs modification
+4. Multiple species contribute (sum over all Standard Model?)
+
+Traceback (most recent call last):
+  File "C:\Users\ericl\Documents\Projects\vacuum_physics\engineering\duality\curvature_transition.py", line 726, in <module>
+    framework, cosmo, trans, scan = run_comprehensive_analysis()
+                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ericl\Documents\Projects\vacuum_physics\engineering\duality\curvature_transition.py", line 720, in run_comprehensive_analysis
+    print(FindingsSummary.regime_predictions(trans['transition_mass_solar']))
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2076' in position 162: character maps to <undefined>

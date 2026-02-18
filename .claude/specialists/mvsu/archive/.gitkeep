@@ -1,0 +1,11 @@
+# Archive Directory
+
+This directory stores archived entries from:
+- learnings.md (when exceeding 200 lines)
+- decision-log.md (when exceeding 100 entries)
+
+Files are archived when they are older than 3-6 months and the main file is approaching its size limit.
+
+Archive naming convention:
+- `learnings-YYYY-MM-DD.md` (date of archival)
+- `decision-log-YYYY-MM-DD.md` (date of archival)

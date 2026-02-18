@@ -1,0 +1,133 @@
+{
+  "target": 1.381966011250105,
+  "phi": 1.618033988749895,
+  "three_minus_phi": 1.381966011250105,
+  "theoretical_results": {
+    "parametric_gelu": {
+      "alpha": 0.5000036846995592,
+      "theoretical_scale": 1.4057419968113327,
+      "error": 0.02377598556122762
+    },
+    "parametric_mish": {
+      "beta": 1.2114172329847417,
+      "theoretical_scale": 1.381966036848992,
+      "error": 2.5598887010147564e-08
+    },
+    "blend": {
+      "alpha": 5.9608609865491405e-06,
+      "theoretical_scale": 1.4447555262088396,
+      "error": 0.06278951495873453
+    },
+    "custom_gate": {
+      "gamma": 4.000106956235694,
+      "delta": 0.8368774733512754,
+      "theoretical_scale": 1.381966011250105,
+      "error": 0.0
+    },
+    "scaled_tanh": {
+      "tau": 1.9795520543823826,
+      "theoretical_scale": 1.3819660266615212,
+      "error": 1.54114161432517e-08
+    },
+    "parametric_swish": {
+      "beta": 6.50435755293275,
+      "theoretical_scale": 1.4024932408519069,
+      "error": 0.020527229601801755
+    },
+    "generalized_gelu": {
+      "a": 0.506055980033981,
+      "b": 0.6355029337910748,
+      "theoretical_scale": 1.381966011250105,
+      "error": 0.0
+    },
+    "phi_gate": {
+      "w": 0.9999940391390134,
+      "theoretical_scale": 1.6233235596115825,
+      "error": 0.24135754836147738
+    }
+  },
+  "nn_results": {
+    "parametric_gelu": {
+      "critical": 1.3390625517979426,
+      "std_err": 0.006045263362650267
+    },
+    "parametric_mish": {
+      "critical": 1.3483492574561626,
+      "std_err": 0.003620315312767475
+    },
+    "blend": {
+      "critical": 1.382877557732963,
+      "std_err": 0.008761001165698898
+    },
+    "custom_gate": {
+      "critical": 1.319720205487435,
+      "std_err": 0.001548383576969291
+    },
+    "scaled_tanh": {
+      "critical": 2.163007537217061,
+      "std_err": 0.10076049367327625
+    },
+    "parametric_swish": {
+      "critical": 1.3056475171987336,
+      "std_err": 0.007398123299454311
+    },
+    "std_gelu": {
+      "critical": 1.3907495853606855,
+      "std_err": 0.00920707684381905
+    },
+    "std_mish": {
+      "critical": 1.3828773690913034,
+      "std_err": 0.0087610310247963
+    }
+  },
+  "all_results_ranked": [
+    {
+      "name": "Custom Gate",
+      "param": "gamma=4.0001, delta=0.8369",
+      "theory": 1.381966011250105,
+      "error": 0.0
+    },
+    {
+      "name": "Generalized GELU",
+      "param": "a=0.5061, b=0.6355",
+      "theory": 1.381966011250105,
+      "error": 0.0
+    },
+    {
+      "name": "Scaled Tanh",
+      "param": "tau=1.979552",
+      "theory": 1.3819660266615212,
+      "error": 1.54114161432517e-08
+    },
+    {
+      "name": "Parametric Mish",
+      "param": "beta=1.211417",
+      "theory": 1.381966036848992,
+      "error": 2.5598887010147564e-08
+    },
+    {
+      "name": "Parametric Swish",
+      "param": "beta=6.504358",
+      "theory": 1.4024932408519069,
+      "error": 0.020527229601801755
+    },
+    {
+      "name": "Parametric GELU",
+      "param": "alpha=0.500004",
+      "theory": 1.4057419968113327,
+      "error": 0.02377598556122762
+    },
+    {
+      "name": "Blend (GELU+Mish)",
+      "param": "alpha=0.000006",
+      "theory": 1.4447555262088396,
+      "error": 0.06278951495873453
+    },
+    {
+      "name": "Phi-Weighted Gate",
+      "param": "w=0.999994",
+      "theory": 1.6233235596115825,
+      "error": 0.24135754836147738
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+======================================================================
+Multi-Head Cube-Topology Attention Experiment
+======================================================================
+
+Constants:
+  phi = 1.618034
+  1/phi^2 = 0.381966
+  embed_dim = 32
+  num_heads = 8, head_dim = 4
+  num_layers = 1
+  patch_size = 8, num_patches = 16
+  message_rounds = 3
+  train_size = 1000, test_size = 500
+  epochs = 8, batch_size = 128
+  seeds = 3, lr = 0.001
+  device = cpu
+
+Verifying cube adjacency...
+  Cube: 8 vertices, 12 edges, 3-regular -- OK
+
+Loading CIFAR-10...
+  Train: 1000 samples, Test: 500 samples
+
+Parameter counts:
+  Standard: 15,690 parameters
+  Cube (learnable): 15,691 parameters
+  Cube (fixed): 15,690 parameters
+  All-to-All: 15,691 parameters
+
+============================================================
+Config: Standard
+============================================================
+
+--- Run 1/12: Standard, seed=0 ---
+  [Standard] Seed 0 | Epoch  1/8 | Train: 0.1890 | Test: 0.1960 | Time: 19.0s
+  [Standard] Seed 0 | Epoch  2/8 | Train: 0.2380 | Test: 0.2440 | Time: 18.7s
+  [Standard] Seed 0 | Epoch  3/8 | Train: 0.2860 | Test: 0.2840 | Time: 20.3s
+  [Standard] Seed 0 | Epoch  4/8 | Train: 0.3090 | Test: 0.2840 | Time: 19.1s
+  [Standard] Seed 0 | Epoch  5/8 | Train: 0.3110 | Test: 0.2940 | Time: 20.0s
+  [Standard] Seed 0 | Epoch  6/8 | Train: 0.3140 | Test: 0.3320 | Time: 23.1s
+  [Standard] Seed 0 | Epoch  7/8 | Train: 0.3480 | Test: 0.3200 | Time: 22.2s
+  [Standard] Seed 0 | Epoch  8/8 | Train: 0.3530 | Test: 0.3060 | Time: 20.0s
+  Completed in 162.4s | Best test acc: 0.3320
+
+--- Run 2/12: Standard, seed=1 ---
+  [Standard] Seed 1 | Epoch  1/8 | Train: 0.1290 | Test: 0.1740 | Time: 17.8s
+  [Standard] Seed 1 | Epoch  2/8 | Train: 0.2160 | Test: 0.2440 | Time: 19.9s
+  [Standard] Seed 1 | Epoch  3/8 | Train: 0.2610 | Test: 0.2620 | Time: 20.3s
+  [Standard] Seed 1 | Epoch  4/8 | Train: 0.2700 | Test: 0.2880 | Time: 19.5s
+  [Standard] Seed 1 | Epoch  5/8 | Train: 0.2920 | Test: 0.2740 | Time: 23.6s
+  [Standard] Seed 1 | Epoch  6/8 | Train: 0.3150 | Test: 0.2840 | Time: 21.4s
+  [Standard] Seed 1 | Epoch  7/8 | Train: 0.3320 | Test: 0.2840 | Time: 19.8s
+  [Standard] Seed 1 | Epoch  8/8 | Train: 0.3510 | Test: 0.3080 | Time: 20.3s
+  Completed in 162.5s | Best test acc: 0.3080
+
+--- Run 3/12: Standard, seed=2 ---
+  [Standard] Seed 2 | Epoch  1/  [Standard] Seed 1 | Epoch  8/10 | Train: 0.4665 | Test: 0.3790 | Time: 144.1s
+  [Standard] Seed 1 | Epoch  9/10 | Train: 0.5120 | Test: 0.3830 | Time: 141.7s
+  [Standard] Seed 1 | Epoch 10/10 | Train: 0.5440 | Test: 0.3860 | Time: 141.7s
+  Completed in 1480.7s | Best test acc: 0.3860
+
+--- Run 3/12: Standard, seed=2 ---
+  [Standard] Seed 2 | Epoch  1/10 | Train: 0.2290 | Test: 0.2760 | Time: 136.4s
+  [Standard] Seed 2 | Epoch  2/10 | Train: 0.2895 | Test: 0.2980 | Time: 146.3s
+  [Standard] Seed 2 | Epoch  3/10 | Train: 0.3110 | Test: 0.3430 | Time: 138.6s
+  [Standard] Seed 2 | Epoch  4/10 | Train: 0.3470 | Test: 0.3540 | Time: 138.2s
+  [Standard] Seed 2 | Epoch  5/10 | Train: 0.4050 | Test: 0.3700 | Time: 140.0s
+  [Standard] Seed 2 | Epoch  6/10 | Train: 0.4330 | Test: 0.3580 | Time: 141.2s
+  [Standard] Seed 2 | Epoch  7/10 | Train: 0.4620 | Test: 0.3810 | Time: 141.9s
+  [Standard] Seed 2 | Epoch  8/10 | Train: 0.4825 | Test: 0.3700 | Time: 140.9s
+  [Standard] Seed 2 | Epoch  9/10 | Train: 0.5185 | Test: 0.3940 | Time: 138.5s
+  [Standard] Seed 2 | Epoch 10/10 | Train: 0.5820 | Test: 0.3910 | Time: 141.0s
+  Completed in 1403.1s | Best test acc: 0.3940
+
+============================================================
+Config: Cube (learnable)
+============================================================
+
+--- Run 4/12: Cube (learnable), seed=0 ---
+  [Cube (learnable)] Seed 0 | Epoch  1/10 | Train: 0.2035 | Test: 0.2550 | Time: 748.6s  alpha=[0.3693, 0.3829]
+  [Cube (learnable)] Seed 0 | Epoch  2/10 | Train: 0.2665 | Test: 0.3020 | Time: 679.3s  alpha=[0.3576, 0.3736]
+  [Cube (learnable)] Seed 0 | Epoch  3/10 | Train: 0.3130 | Test: 0.2940 | Time: 673.4s  alpha=[0.3485, 0.3609]
+  [Cube (learnable)] Seed 0 | Epoch  4/10 | Train: 0.3700 | Test: 0.3780 | Time: 663.7s  alpha=[0.3435, 0.3523]
+  [Cube (learnable)] Seed 0 | Epoch  5/10 | Train: 0.4020 | Test: 0.3710 | Time: 644.6s  alpha=[0.3393, 0.3457]
+  [Cube (learnable)] Seed 0 | Epoch  6/10 | Train: 0.4175 | Test: 0.3440 | Time: 625.3s  alpha=[0.3319, 0.3384]
+  [Cube (learnable)] Seed 0 | Epoch  7/10 | Train: 0.4610 | Test: 0.3900 | Time: 599.2s  alpha=[0.3251, 0.3342]
+  [Cube (learnable)] Seed 0 | Epoch  8/10 | Train: 0.4810 | Test: 0.3920 | Time: 611.9s  alpha=[0.3226, 0.3299]
+  [Cube (learnable)] Seed 0 | Epoch  9/10 | Train: 0.5155 | Test: 0.4030 | Time: 614.5s  alpha=[0.3218, 0.3237]
+  [Cube (learnable)] Seed 0 | Epoch 10/10 | Train: 0.5590 | Test: 0.4070 | Time: 625.9s  alpha=[0.3190, 0.3175]
+  Completed in 6486.3s | Best test acc: 0.4070
+
+--- Run 5/12: Cube (learnable), seed=1 ---
+  [Cube (learnable)] Seed 1 | Epoch  1/10 | Train: 0.2150 | Test: 0.2820 | Time: 629.0s  alpha=[0.3731, 0.3753]
+  [Cube (learnable)] Seed 1 | Epoch  2/10 | Train: 0.2765 | Test: 0.3090 | Time: 634.2s  alpha=[0.3692, 0.3695]
+  [Cube (learnable)] Seed 1 | Epoch  3/10 | Train: 0.3275 | Test: 0.3360 | Time: 622.1s  alpha=[0.3632, 0.3628]
+  [Cube (learnable)] Seed 1 | Epoch  4/10 | Train: 0.3555 | Test: 0.3650 | Time: 614.6s  alpha=[0.3542, 0.3540]
+  [Cube (learnable)] Seed 1 | Epoch  5/10 | Train: 0.3825 | Test: 0.3470 | Time: 600.5s  alpha=[0.3511, 0.3462]
+  [Cube (learnable)] Seed 1 | Epoch  6/10 | Train: 0.4145 | Test: 0.3600 | Time: 602.0s  alpha=[0.3438, 0.3389]
+  [Cube (learnable)] Seed 1 | Epoch  7/10 | Train: 0.4275 | Test: 0.3680 | Time: 606.5s  alpha=[0.3396, 0.3375]
+  [Cube (learnable)] Seed 1 | Epoch  8/10 | Train: 0.4605 | Test: 0.3570 | Time: 600.0s  alpha=[0.3323, 0.3318]
+  [Cube (learnable)] Seed 1 | Epoch  9/10 | Train: 0.4905 | Test: 0.3810 | Time: 590.2s  alpha=[0.3271, 0.3259]
+  [Cube (learnable)] Seed 1 | Epoch 10/10 | Train: 0.5135 | Test: 0.3750 | Time: 599.8s  alpha=[0.3184, 0.3178]
+  Completed in 6099.2s | Best test acc: 0.3810
+
+--- Run 6/12: Cube (learnable), seed=2 ---
+  [Cube (learnable)] Seed 2 | Epoch  1/10 | Train: 0.2140 | Test: 0.2730 | Time: 621.0s  alpha=[0.3753, 0.3833]
+  [Cube (learnable)] Seed 2 | Epoch  2/10 | Train: 0.2670 | Test: 0.2970 | Time: 582.9s  alpha=[0.3658, 0.3714]
+  [Cube (learnable)] Seed 2 | Epoch  3/10 | Train: 0.3035 | Test: 0.2960 | Time: 547.7s  alpha=[0.3614, 0.3596]
+  [Cube (learnable)] Seed 2 | Epoch  4/10 | Train: 0.3480 | Test: 0.3180 | Time: 449.2s  alpha=[0.3552, 0.3474]
+  [Cube (learnable)] Seed 2 | Epoch  5/10 | Train: 0.3875 | Test: 0.3460 | Time: 445.8s  alpha=[0.3529, 0.3388]
+  [Cube (learnable)] Seed 2 | Epoch  6/10 | Train: 0.4020 | Test: 0.3420 | Time: 447.2s  alpha=[0.3484, 0.3306]
+  [Cube (learnable)] Seed 2 | Epoch  7/10 | Train: 0.4345 | Test: 0.3600 | Time: 403.0s  alpha=[0.3450, 0.3197]
+  [Cube (learnable)] Seed 2 | Epoch  8/10 | Train: 0.4675 | Test: 0.3370 | Time: 329.5s  alpha=[0.3384, 0.3131]
+  [Cube (learnable)] Seed 2 | Epoch  9/10 | Train: 0.5085 | Test: 0.3690 | Time: 334.0s  alpha=[0.3353, 0.3024]
+  [Cube (learnable)] Seed 2 | Epoch 10/10 | Train: 0.5525 | Test: 0.3740 | Time: 337.8s  alpha=[0.3331, 0.3004]
+  Completed in 4498.1s | Best test acc: 0.3740
+
+============================================================
+Config: Cube (fixed)
+============================================================
+
+--- Run 7/12: Cube (fixed), seed=0 ---
+  [Cube (fixed)] Seed 0 | Epoch  1/10 | Train: 0.2035 | Test: 0.2520 | Time: 293.8s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  2/10 | Train: 0.2655 | Test: 0.2980 | Time: 291.5s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  3/10 | Train: 0.3140 | Test: 0.2910 | Time: 301.5s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  4/10 | Train: 0.3680 | Test: 0.3770 | Time: 325.2s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  5/10 | Train: 0.3975 | Test: 0.3640 | Time: 430.6s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  6/10 | Train: 0.4145 | Test: 0.3430 | Time: 432.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  7/10 | Train: 0.4610 | Test: 0.3780 | Time: 498.0s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  8/10 | Train: 0.4880 | Test: 0.3950 | Time: 555.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch  9/10 | Train: 0.5225 | Test: 0.3920 | Time: 556.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 0 | Epoch 10/10 | Train: 0.5535 | Test: 0.3990 | Time: 557.6s  alpha=[0.3820, 0.3820]
+  Completed in 4243.3s | Best test acc: 0.3990
+
+--- Run 8/12: Cube (fixed), seed=1 ---
+  [Cube (fixed)] Seed 1 | Epoch  1/10 | Train: 0.2155 | Test: 0.2830 | Time: 562.0s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  2/10 | Train: 0.2750 | Test: 0.3070 | Time: 556.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  3/10 | Train: 0.3265 | Test: 0.3350 | Time: 557.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  4/10 | Train: 0.3555 | Test: 0.3610 | Time: 550.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  5/10 | Train: 0.3810 | Test: 0.3460 | Time: 556.3s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  6/10 | Train: 0.4080 | Test: 0.3530 | Time: 560.8s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  7/10 | Train: 0.4240 | Test: 0.3680 | Time: 579.3s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  8/10 | Train: 0.4595 | Test: 0.3520 | Time: 688.8s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch  9/10 | Train: 0.4870 | Test: 0.3780 | Time: 643.1s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 1 | Epoch 10/10 | Train: 0.5145 | Test: 0.3730 | Time: 620.9s  alpha=[0.3820, 0.3820]
+  Completed in 5876.6s | Best test acc: 0.3780
+
+--- Run 9/12: Cube (fixed), seed=2 ---
+  [Cube (fixed)] Seed 2 | Epoch  1/10 | Train: 0.2140 | Test: 0.2730 | Time: 573.4s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  2/10 | Train: 0.2670 | Test: 0.2950 | Time: 558.2s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  3/10 | Train: 0.3030 | Test: 0.2940 | Time: 561.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  4/10 | Train: 0.3470 | Test: 0.3160 | Time: 620.7s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  5/10 | Train: 0.3860 | Test: 0.3480 | Time: 770.5s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  6/10 | Train: 0.4060 | Test: 0.3460 | Time: 745.1s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  7/10 | Train: 0.4335 | Test: 0.3630 | Time: 570.0s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  8/10 | Train: 0.4690 | Test: 0.3320 | Time: 620.1s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch  9/10 | Train: 0.5085 | Test: 0.3490 | Time: 642.1s  alpha=[0.3820, 0.3820]
+  [Cube (fixed)] Seed 2 | Epoch 10/10 | Train: 0.5440 | Test: 0.3760 | Time: 582.4s  alpha=[0.3820, 0.3820]
+  Completed in 6244.2s | Best test acc: 0.3760
+
+============================================================
+Config: All-to-All
+============================================================
+
+--- Run 10/12: All-to-All, seed=0 ---
+  [All-to-All] Seed 0 | Epoch  1/10 | Train: 0.2015 | Test: 0.2330 | Time: 697.1s  alpha=[0.3645, 0.3872]
+  [All-to-All] Seed 0 | Epoch  2/10 | Train: 0.2650 | Test: 0.2970 | Time: 697.5s  alpha=[0.3493, 0.3792]
+  [All-to-All] Seed 0 | Epoch  3/10 | Train: 0.3150 | Test: 0.3150 | Time: 696.2s  alpha=[0.3400, 0.3643]
+  [All-to-All] Seed 0 | Epoch  4/10 | Train: 0.3705 | Test: 0.3680 | Time: 743.6s  alpha=[0.3316, 0.3537]
+  [All-to-All] Seed 0 | Epoch  5/10 | Train: 0.3935 | Test: 0.3590 | Time: 762.0s  alpha=[0.3243, 0.3434]
+  [All-to-All] Seed 0 | Epoch  6/10 | Train: 0.4210 | Test: 0.3740 | Time: 823.2s  alpha=[0.3155, 0.3345]
+  [All-to-All] Seed 0 | Epoch  7/10 | Train: 0.4580 | Test: 0.3640 | Time: 719.6s  alpha=[0.3096, 0.3225]
+  [All-to-All] Seed 0 | Epoch  8/10 | Train: 0.4690 | Test: 0.4000 | Time: 718.6s  alpha=[0.3056, 0.3133]
+  [All-to-All] Seed 0 | Epoch  9/10 | Train: 0.5050 | Test: 0.3990 | Time: 712.9s  alpha=[0.3010, 0.3019]
+  [All-to-All] Seed 0 | Epoch 10/10 | Train: 0.5675 | Test: 0.3990 | Time: 738.5s  alpha=[0.2975, 0.2875]
+  Completed in 7309.1s | Best test acc: 0.4000
+
+--- Run 11/12: All-to-All, seed=1 ---
+  [All-to-All] Seed 1 | Epoch  1/10 | Train: 0.2150 | Test: 0.2780 | Time: 693.4s  alpha=[0.3738, 0.3737]
+  [All-to-All] Seed 1 | Epoch  2/10 | Train: 0.2735 | Test: 0.3050 | Time: 606.0s  alpha=[0.3689, 0.3651]
+  [All-to-All] Seed 1 | Epoch  3/10 | Train: 0.3255 | Test: 0.3280 | Time: 692.2s  alpha=[0.3626, 0.3561]
+  [All-to-All] Seed 1 | Epoch  4/10 | Train: 0.3540 | Test: 0.3410 | Time: 598.7s  alpha=[0.3554, 0.3448]
+  [All-to-All] Seed 1 | Epoch  5/10 | Train: 0.3710 | Test: 0.3590 | Time: 434.1s  alpha=[0.3460, 0.3359]
+  [All-to-All] Seed 1 | Epoch  6/10 | Train: 0.4090 | Test: 0.3730 | Time: 440.1s  alpha=[0.3391, 0.3328]
+  [All-to-All] Seed 1 | Epoch  7/10 | Train: 0.4335 | Test: 0.3750 | Time: 557.4s  alpha=[0.3323, 0.3287]
+  [All-to-All] Seed 1 | Epoch  8/10 | Train: 0.4515 | Test: 0.3720 | Time: 612.2s  alpha=[0.3233, 0.3216]
+  [All-to-All] Seed 1 | Epoch  9/10 | Train: 0.5000 | Test: 0.3800 | Time: 544.0s  alpha=[0.3183, 0.3162]
+  [All-to-All] Seed 1 | Epoch 10/10 | Train: 0.5200 | Test: 0.3850 | Time: 696.1s  alpha=[0.3088, 0.3066]
+  Completed in 5874.3s

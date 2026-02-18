@@ -1,0 +1,182 @@
+[
+  {
+    "kernel_size": 3,
+    "stride": 1,
+    "overlap": 0.666667,
+    "mean_acc": 0.531567,
+    "std_acc": 0.00224,
+    "accs": [
+      0.5304,
+      0.5296,
+      0.5347
+    ]
+  },
+  {
+    "kernel_size": 3,
+    "stride": 2,
+    "overlap": 0.333333,
+    "mean_acc": 0.532033,
+    "std_acc": 0.00296,
+    "accs": [
+      0.5303,
+      0.5296,
+      0.5362
+    ]
+  },
+  {
+    "kernel_size": 3,
+    "stride": 3,
+    "overlap": 0.0,
+    "mean_acc": 0.509167,
+    "std_acc": 0.006344,
+    "accs": [
+      0.5177,
+      0.5025,
+      0.5073
+    ]
+  },
+  {
+    "kernel_size": 5,
+    "stride": 1,
+    "overlap": 0.8,
+    "mean_acc": 0.5292,
+    "std_acc": 0.004072,
+    "accs": [
+      0.5338,
+      0.5239,
+      0.5299
+    ]
+  },
+  {
+    "kernel_size": 5,
+    "stride": 2,
+    "overlap": 0.6,
+    "mean_acc": 0.533733,
+    "std_acc": 0.009722,
+    "accs": [
+      0.5454,
+      0.5342,
+      0.5216
+    ]
+  },
+  {
+    "kernel_size": 5,
+    "stride": 3,
+    "overlap": 0.4,
+    "mean_acc": 0.5054,
+    "std_acc": 0.008747,
+    "accs": [
+      0.514,
+      0.5088,
+      0.4934
+    ]
+  },
+  {
+    "kernel_size": 5,
+    "stride": 4,
+    "overlap": 0.2,
+    "mean_acc": 0.481733,
+    "std_acc": 0.003679,
+    "accs": [
+      0.4771,
+      0.482,
+      0.4861
+    ]
+  },
+  {
+    "kernel_size": 5,
+    "stride": 5,
+    "overlap": 0.0,
+    "mean_acc": 0.482967,
+    "std_acc": 0.002341,
+    "accs": [
+      0.486,
+      0.4826,
+      0.4803
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 1,
+    "overlap": 0.857143,
+    "mean_acc": 0.518167,
+    "std_acc": 0.005595,
+    "accs": [
+      0.5112,
+      0.5184,
+      0.5249
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 2,
+    "overlap": 0.714286,
+    "mean_acc": 0.5121,
+    "std_acc": 0.009829,
+    "accs": [
+      0.522,
+      0.5156,
+      0.4987
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 3,
+    "overlap": 0.571429,
+    "mean_acc": 0.502767,
+    "std_acc": 0.006873,
+    "accs": [
+      0.5105,
+      0.504,
+      0.4938
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 4,
+    "overlap": 0.428571,
+    "mean_acc": 0.499867,
+    "std_acc": 0.008469,
+    "accs": [
+      0.5092,
+      0.5017,
+      0.4887
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 5,
+    "overlap": 0.285714,
+    "mean_acc": 0.496433,
+    "std_acc": 0.004419,
+    "accs": [
+      0.5025,
+      0.4921,
+      0.4947
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 6,
+    "overlap": 0.142857,
+    "mean_acc": 0.423233,
+    "std_acc": 0.004499,
+    "accs": [
+      0.4172,
+      0.428,
+      0.4245
+    ]
+  },
+  {
+    "kernel_size": 7,
+    "stride": 7,
+    "overlap": 0.0,
+    "mean_acc": 0.451067,
+    "std_acc": 0.00288,
+    "accs": [
+      0.4533,
+      0.447,
+      0.4529
+    ]
+  }
+]

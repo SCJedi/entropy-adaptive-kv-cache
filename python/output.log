@@ -1,0 +1,69 @@
+C:\Users\ericl\Documents\Projects\vacuum_physics\python\phi_ml_investigation.py:127: IntegrationWarning: The occurrence of roundoff error is detected, which prevents 
+  the requested tolerance from being achieved.  The error may be 
+  underestimated.
+  result, err = integrate.quad(integrand, -limit, limit, limit=100)
+C:\Users\ericl\Documents\Projects\vacuum_physics\python\phi_ml_investigation.py:156: RuntimeWarning: divide by zero encountered in log
+  eq1 = np.log(sw2 * Ef2) - log_q
+======================================================================
+GOLDEN RATIO CONSTANTS
+======================================================================
+phi           = 1.6180339887
+phi^2         = 2.6180339887
+3 - phi       = 1.3819660113
+(3-phi)^2     = 1.9098300563
+1/phi^2       = 0.3819660113
+phi^2 / 5     = 0.5236067977
+1/(3-phi)^2   = 0.5236067977  (should = phi^2/5 = 0.5236067977)
+
+======================================================================
+PART 1 & 2: CRITICAL POINTS AND INTEGRAL DECOMPOSITION
+======================================================================
+
+--- GELU ---
+  GELU: FAILED to find critical point
+
+--- Swish ---
+  Swish: FAILED to find critical point
+
+--- Mish ---
+  Mish: FAILED to find critical point
+
+--- Ouroboros(λ=0.3757) ---
+  Ouroboros(λ=0.3757): FAILED to find critical point
+
+======================================================================
+PART 3: SIGMOID SHARPNESS SWEEP  f(x) = x * sigmoid(beta*x)
+======================================================================
+
+  beta |    sigma_w | diff from 3-phi |          T |         5T |  Phi_prime
+---------------------------------------------------------------------------
+
+======================================================================
+PART 4: LEAKINESS SWEEP  f(x) = x * (lambda + (1-lambda)*sigmoid(x))
+======================================================================
+
+  lambda |    sigma_w | diff from 3-phi |          T |         5T |  Phi_prime
+-----------------------------------------------------------------------------
+
+======================================================================
+PART 5: SUMMARY TABLE
+======================================================================
+          Activation |  sigma_w | |Δ(3-φ)| |        T | |Δ(φ²/5)| |       5T |    D+1/D |   Φ'(q*)
+----------------------------------------------------------------------------------------------------
+
+  Reference: 3-phi = 1.381966, phi^2/5 = 0.523607, phi^2 = 2.618034, -1/phi^2 = -0.381966
+
+======================================================================
+PART 6: WHAT IS THE ACTUAL STRUCTURE?
+======================================================================
+
+======================================================================
+PART 7: LYAPUNOV EXPONENT SENSITIVITY
+======================================================================
+How does the Lyapunov exponent lambda depend on sigma_w near criticality?
+lambda(sigma_w) = E[log|f'(z)|] + log(sigma_w)
+d(lambda)/d(sigma_w) at criticality:
+
+======================================================================
+DONE
+======================================================================

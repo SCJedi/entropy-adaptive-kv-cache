@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr:*)",
+      "Bash(python:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(dir:*)",
+      "Bash(if not exist \"C:\\\\Users\\\\ericl\\\\Documents\\\\Projects\\\\vacuum_physics\\\\analysis\" mkdir \"C:\\\\Users\\\\ericl\\\\Documents\\\\Projects\\\\vacuum_physics\\\\analysis\")",
+      "Bash(taskkill:*)",
+      "Bash(pkill:*)",
+      "WebSearch",
+      "WebFetch(domain:lhncbc.nlm.nih.gov)",
+      "WebFetch(domain:arxiv.org)",
+      "Bash(pip install:*)",
+      "Bash(timeout:*)",
+      "Bash(for f in \"C:\\\\Users\\\\ericl\\\\Documents\\\\Projects\\\\vacuum_physics\\\\analysis\\\\feynman\"/*.md)",
+      "Bash(done)",
+      "Skill(create-specialist)",
+      "WebFetch(domain:www.tradingview.com)",
+      "WebFetch(domain:gist.github.com)",
+      "Bash(ren \"C:\\\\Users\\\\ericl\\\\Documents\\\\Projects\\\\vacuum_physics\\\\analysis\\\\feynman\\\\07_discrete_observers.md\" \"09_DISCRETE_OBSERVERS.md\")",
+      "Bash(if not exist \"C:\\\\Users\\\\ericl\\\\Documents\\\\Projects\\\\vacuum_physics\\\\python\\\\experiments\\\\plots\" mkdir \"C:\\\\Users\\\\ericl\\\\Documents\\\\Projects\\\\vacuum_physics\\\\python\\\\experiments\\\\plots\")",
+      "Bash(powershell:*)",
+      "Bash(python3:*)",
+      "Bash(pip show:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
