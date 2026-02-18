@@ -428,6 +428,86 @@ class ObserverAttention(nn.Module):
 
 ---
 
+### Tier 2.5: Learnable Echo Correction Projector
+
+**New tier validated in Experiment 31.** This is a compromise between Tier 2 (inter-head messaging only) and Tier 3 (full dual-channel). Instead of running two full attention channels, use a single channel plus a learned rank-4 echo correction projector per layer.
+
+#### 4.2.5.1 Motivation
+
+Experiment 31 (Echo Subspace Analysis) found that:
+- The echo (contamination) is NOT low-rank (~52% variance in top-4 PCA components, not 80%+)
+- The echo is NOT self-similar across layers (cross-layer similarity ~0.012, essentially random)
+- BUT a learnable rank-4 projector MATCHES full dual-channel performance (67.13% vs 67.11%) with fewer parameters
+
+The key insight: you don't need to model the echo itself (which is high-dimensional), you need to model the correction function (which is low-rank and learnable).
+
+#### 4.2.5.2 Implementation Recipe
+
+1. **Train a dual-channel model for 5 epochs** (Tier 3 architecture)
+2. **Compute PCA on echo patterns** (primary - secondary) for each layer, keeping top-4 components
+3. **Initialize rank-4 projectors** with the PCA basis per layer
+4. **Replace dual-channel attention with single-channel + learnable projector:**
+
+```python
+class Tier25Attention(nn.Module):
+    """Single-channel attention + learnable rank-4 echo correction."""
+
+    def __init__(self, d_model: int, num_heads: int):
+        super().__init__()
+        self.attention = ObserverAttention(d_model, num_heads)  # Tier 2
+
+        # Per-layer echo correction projector (rank-4)
+        # Initialized from PCA of echo patterns
+        self.echo_proj = nn.Linear(d_model, 4, bias=False)
+        self.echo_back = nn.Linear(4, d_model, bias=False)
+
+        # Initialize from PCA basis (computed during warmup)
+        # self.echo_proj.weight = top_4_pca_components
+        # self.echo_back.weight = top_4_pca_components.T
+
+    def forward(self, x):
+        # Standard attention output
+        attn_out = self.attention(x)
+
+        # Compute echo correction
+        echo_latent = self.echo_proj(attn_out)
+        echo_correction = self.echo_back(echo_latent)
+
+        # Apply correction (subtractive)
+        return attn_out - echo_correction
+```
+
+5. **Train end-to-end** — the projector basis will drift from PCA initialization to task-optimal correction directions
+
+#### 4.2.5.3 When to Use Tier 2.5
+
+**Use Tier 2.5 when:**
+- Parameter budget is constrained (Tier 2.5: ~811k params vs Tier 3: ~817k params)
+- Target accuracy matches Tier 3 (both achieve ~67.1% on CIFAR-10)
+- Interpretability is not critical (can't separate primary/secondary channels)
+
+**Use Tier 3 when:**
+- Need interpretable primary/secondary separation
+- Maximum correction power required
+- Parameter budget allows for full dual-channel
+
+**Do NOT use Tier 2.5 Fixed (frozen PCA projector).** Freezing the PCA basis hurts performance (66.22% vs 67.00% baseline). The correction basis MUST be learned end-to-end.
+
+**Do NOT use a universal projector across layers.** Echo structure is layer-specific (cross-layer similarity ~0.012). Each layer needs its own correction basis.
+
+#### 4.2.5.4 Parameter Comparison
+
+| Tier | Description | Params (d_model=128, 4 layers, 8 heads) | Best Acc (CIFAR-10) |
+|------|-------------|------------------------------------------|---------------------|
+| Baseline | Standard attention | 809,098 | 67.00% |
+| Tier 2 | Inter-head hypercube | 627,142 | 65.60% |
+| Tier 2.5 Learnable | Single channel + rank-4 projector | 811,178 | 67.13% |
+| Tier 3 | Full dual-channel | 817,294 | 67.11% |
+
+Tier 2.5 is the parameter-accuracy sweet spot: matches Tier 3 performance with slightly fewer parameters.
+
+---
+
 ### Tier 3: Full Observer Transformer
 
 The complete architecture incorporating all findings: phi-optimal dropout and FFN, hypercube inter-head messaging, and inhibitory dual-channel attention within each head.

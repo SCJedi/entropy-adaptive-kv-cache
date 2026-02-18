@@ -1,0 +1,1399 @@
+Echo Subspace Experiment (Experiment 31)
+The "eraser" hypothesis: Can we replace expensive dual-channel attention with a cheap echo projector?
+
+Key question: Does self-referential contamination (echo) live in a low-rank subspace? If yes → cheap rank-k subtraction replaces full secondary channel If no → dual-channel architecture is genuinely necessary
+
+Phases:
+
+Train dual-channel model, confirm w_cross depth gradient
+Extract echo patterns, PCA analysis
+Build and test Tier 2.5 (echo projector)
+Test if echo subspace is self-similar across layers
+Setup + Imports
+
+[ ]
+import math
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import DataLoader
+
+import torchvision
+import torchvision.transforms as transforms
+
+# Auto-detect GPU/CPU
+if torch.cuda.is_available():
+    DEVICE = torch.device('cuda')
+    GPU_NAME = torch.cuda.get_device_name(0)
+    print(f"GPU detected: {GPU_NAME}")
+else:
+    DEVICE = torch.device('cpu')
+    GPU_NAME = None
+    print("No GPU detected -- using CPU")
+
+# Set seeds for reproducibility
+SEED = 42
+torch.manual_seed(SEED)
+np.random.seed(SEED)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(SEED)
+
+print(f"PyTorch version: {torch.__version__}")
+print(f"Device: {DEVICE}")
+GPU detected: Tesla T4
+PyTorch version: 2.9.0+cu128
+Device: cuda
+Constants
+
+[ ]
+PHI = (1 + 5**0.5) / 2
+EMBED_DIM = 128
+NUM_HEADS = 8
+HEAD_DIM = EMBED_DIM // NUM_HEADS  # 16
+NUM_LAYERS = 4
+PATCH_SIZE = 4
+NUM_CLASSES = 10
+SECONDARY_RANK = 4  # Low-rank secondary channel
+BATCH_SIZE = 128
+EPOCHS = 20
+LR = 1e-3
+DROPOUT = 0.382
+W_CROSS_INIT = -0.1
+
+print(f"phi = {PHI:.6f}")
+print(f"Embed dim: {EMBED_DIM}, Heads: {NUM_HEADS}, Head dim: {HEAD_DIM}")
+print(f"Layers: {NUM_LAYERS}, Secondary rank: {SECONDARY_RANK}")
+print(f"Batch size: {BATCH_SIZE}, Epochs: {EPOCHS}")
+phi = 1.618034
+Embed dim: 128, Heads: 8, Head dim: 16
+Layers: 4, Secondary rank: 4
+Batch size: 128, Epochs: 20
+Data Loading
+
+[ ]
+# CIFAR-10 normalization constants
+CIFAR_MEAN = (0.4914, 0.4822, 0.4465)
+CIFAR_STD = (0.2470, 0.2435, 0.2616)
+
+transform_train = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+])
+
+transform_test = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+])
+
+# Download datasets
+train_dataset = torchvision.datasets.CIFAR10(
+    root='./data', train=True, download=True, transform=transform_train
+)
+test_dataset = torchvision.datasets.CIFAR10(
+    root='./data', train=False, download=True, transform=transform_test
+)
+
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=2)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+
+print(f"Training samples: {len(train_dataset)}")
+print(f"Test samples: {len(test_dataset)}")
+print(f"Batches per epoch: {len(train_loader)}")
+100%|██████████| 170M/170M [00:13<00:00, 12.4MB/s]
+Training samples: 50000
+Test samples: 10000
+Batches per epoch: 391
+Model Components
+We'll build:
+
+PatchEmbedding - Conv2d patch embed + positional encoding
+DualChannelAttention - Primary (full-rank) + Secondary (low-rank) with w_cross
+TransformerBlock - Attention + FFN + residuals
+DualChannelTransformer - Full model
+
+[ ]
+class PatchEmbedding(nn.Module):
+    """Patch embedding via Conv2d with positional encoding."""
+    def __init__(self, patch_size=4, in_channels=3, embed_dim=128, img_size=32):
+        super().__init__()
+        num_patches = (img_size // patch_size) ** 2
+        self.patch_embed = nn.Conv2d(in_channels, embed_dim,
+                                     kernel_size=patch_size, stride=patch_size)
+        self.pos_embed = nn.Parameter(torch.randn(1, num_patches, embed_dim) * 0.02)
+
+    def forward(self, x):
+        # x: (B, C, H, W)
+        x = self.patch_embed(x)  # (B, embed_dim, H', W')
+        x = x.flatten(2).transpose(1, 2)  # (B, num_patches, embed_dim)
+        x = x + self.pos_embed
+        return x
+
+print("PatchEmbedding defined.")
+PatchEmbedding defined.
+
+[ ]
+class DualChannelAttention(nn.Module):
+    """Multi-head attention with primary (full-rank) and secondary (low-rank) channels.
+
+    Primary: standard QKV attention
+    Secondary: low-rank factorization Q/K, shared V
+    Output: primary_out + w_cross * secondary_out
+
+    The low-rank bottleneck forces the secondary to attend to coarser features,
+    creating different error profiles.
+    """
+    def __init__(self, d_model=128, num_heads=8, secondary_rank=4,
+                 w_cross_init=-0.1, dropout=0.382):
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_head = d_model // num_heads
+        self.scale = self.d_head ** -0.5
+        self.secondary_rank = secondary_rank
+
+        # Primary channel: full-rank QKV
+        self.qkv_primary = nn.Linear(d_model, 3 * d_model)
+
+        # Secondary channel: low-rank Q/K (shared V with primary)
+        self.q_sec_down = nn.Linear(d_model, secondary_rank, bias=False)
+        self.q_sec_up = nn.Linear(secondary_rank, d_model, bias=False)
+        self.k_sec_down = nn.Linear(d_model, secondary_rank, bias=False)
+        self.k_sec_up = nn.Linear(secondary_rank, d_model, bias=False)
+
+        # Initialize secondary with orthogonal matrices (different from primary)
+        nn.init.orthogonal_(self.q_sec_down.weight)
+        nn.init.orthogonal_(self.q_sec_up.weight)
+        nn.init.orthogonal_(self.k_sec_down.weight)
+        nn.init.orthogonal_(self.k_sec_up.weight)
+
+        # Output projection
+        self.out_proj = nn.Linear(d_model, d_model)
+
+        # Cross-correction weight (per layer, scalar)
+        self.w_cross = nn.Parameter(torch.tensor(w_cross_init))
+
+        # Dropout
+        self.attn_drop = nn.Dropout(dropout)
+        self.proj_drop = nn.Dropout(dropout)
+
+        # Store outputs for extraction
+        self.primary_out = None
+        self.secondary_out = None
+
+    def forward(self, x):
+        # x: (B, T, D)
+        B, T, D = x.shape
+        H = self.num_heads
+        d_h = self.d_head
+
+        # Primary channel
+        qkv = self.qkv_primary(x).reshape(B, T, 3, H, d_h).permute(2, 0, 3, 1, 4)
+        q_p, k_p, v = qkv[0], qkv[1], qkv[2]  # (B, H, T, d_h)
+
+        attn_p = (q_p @ k_p.transpose(-2, -1)) * self.scale  # (B, H, T, T)
+        attn_p = attn_p.softmax(dim=-1)
+        attn_p = self.attn_drop(attn_p)
+        primary_out = attn_p @ v  # (B, H, T, d_h)
+
+        # Secondary channel: low-rank Q/K, shared V
+        q_s = self.q_sec_up(self.q_sec_down(x))  # (B, T, D)
+        k_s = self.k_sec_up(self.k_sec_down(x))  # (B, T, D)
+        q_s = q_s.reshape(B, T, H, d_h).permute(0, 2, 1, 3)  # (B, H, T, d_h)
+        k_s = k_s.reshape(B, T, H, d_h).permute(0, 2, 1, 3)  # (B, H, T, d_h)
+
+        attn_s = (q_s @ k_s.transpose(-2, -1)) * self.scale  # (B, H, T, T)
+        attn_s = attn_s.softmax(dim=-1)
+        attn_s = self.attn_drop(attn_s)
+        secondary_out = attn_s @ v  # (B, H, T, d_h)
+
+        # Store for extraction (before mixing heads)
+        self.primary_out = primary_out.detach()
+        self.secondary_out = secondary_out.detach()
+
+        # Cross-correction: primary + w_cross * secondary
+        head_out = primary_out + self.w_cross * secondary_out  # (B, H, T, d_h)
+
+        # Reassemble heads
+        out = head_out.permute(0, 2, 1, 3).reshape(B, T, D)  # (B, T, D)
+        out = self.out_proj(out)
+        out = self.proj_drop(out)
+        return out
+
+print("DualChannelAttention defined.")
+DualChannelAttention defined.
+
+[ ]
+class TransformerBlock(nn.Module):
+    """Pre-norm transformer block with dual-channel attention."""
+    def __init__(self, d_model=128, num_heads=8, secondary_rank=4,
+                 w_cross_init=-0.1, dropout=0.382):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(d_model)
+        self.attn = DualChannelAttention(d_model, num_heads, secondary_rank,
+                                         w_cross_init, dropout)
+        self.norm2 = nn.LayerNorm(d_model)
+        ffn_dim = d_model * 4  # Standard 4x expansion (not phi, to isolate dual-channel effect)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, ffn_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(ffn_dim, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        x = x + self.attn(self.norm1(x))
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+print("TransformerBlock defined.")
+TransformerBlock defined.
+
+[ ]
+class DualChannelTransformer(nn.Module):
+    """Full transformer with dual-channel attention."""
+    def __init__(self, img_size=32, patch_size=4, in_channels=3, num_classes=10,
+                 d_model=128, num_heads=8, num_layers=4, secondary_rank=4,
+                 w_cross_init=-0.1, dropout=0.382):
+        super().__init__()
+        self.patch_embed = PatchEmbedding(patch_size, in_channels, d_model, img_size)
+        self.embed_drop = nn.Dropout(dropout)
+
+        self.blocks = nn.ModuleList([
+            TransformerBlock(d_model, num_heads, secondary_rank, w_cross_init, dropout)
+            for _ in range(num_layers)
+        ])
+
+        self.norm = nn.LayerNorm(d_model)
+        self.head = nn.Linear(d_model, num_classes)
+
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+        # Re-initialize w_cross after general init
+        for m in self.modules():
+            if hasattr(m, 'w_cross'):
+                nn.init.constant_(m.w_cross, W_CROSS_INIT)
+
+    def forward(self, x):
+        # x: (B, C, H, W)
+        x = self.patch_embed(x)  # (B, T, D)
+        x = self.embed_drop(x)
+
+        for block in self.blocks:
+            x = block(x)
+
+        x = x.mean(dim=1)  # Global average pool
+        x = self.norm(x)
+        return self.head(x)
+
+print("DualChannelTransformer defined.")
+DualChannelTransformer defined.
+Training Utilities
+
+[ ]
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def evaluate(model, loader, device):
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = outputs.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+    return correct / total
+
+def train_model(model, train_loader, test_loader, device, epochs=20, lr=1e-3, label="Model"):
+    model = model.to(device)
+    num_params = count_parameters(model)
+    print(f"\n{'='*60}")
+    print(f"Training: {label}")
+    print(f"Parameters: {num_params:,}")
+    print(f"{'='*60}")
+
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    criterion = nn.CrossEntropyLoss()
+
+    history = {
+        'train_loss': [],
+        'test_acc': [],
+        'w_cross_history': [],
+    }
+
+    for epoch in range(epochs):
+        model.train()
+        running_loss = 0.0
+        num_batches = 0
+        t0 = time.time()
+
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+
+            running_loss += loss.item()
+            num_batches += 1
+
+        epoch_time = time.time() - t0
+        avg_loss = running_loss / num_batches
+        test_acc = evaluate(model, test_loader, device)
+
+        history['train_loss'].append(avg_loss)
+        history['test_acc'].append(test_acc)
+
+        # Record w_cross values
+        w_cross_vals = []
+        for name, param in model.named_parameters():
+            if 'w_cross' in name:
+                w_cross_vals.append(param.data.cpu().item())
+        if w_cross_vals:
+            history['w_cross_history'].append(w_cross_vals)
+
+        print(f"  Epoch {epoch+1:2d}/{epochs} | Loss: {avg_loss:.4f} | "
+              f"Test Acc: {test_acc:.4f} | Time: {epoch_time:.1f}s")
+
+    best_acc = max(history['test_acc'])
+    print(f"\n  Best test accuracy: {best_acc:.4f}")
+
+    return history
+
+print("Training utilities defined.")
+Training utilities defined.
+Phase 1: Train Dual-Channel Model
+Train a 4-layer transformer with dual-channel attention. Confirm that w_cross stays negative and shows depth gradient.
+
+
+[ ]
+torch.manual_seed(SEED)
+
+dual_channel_model = DualChannelTransformer(
+    img_size=32, patch_size=PATCH_SIZE, num_classes=NUM_CLASSES,
+    d_model=EMBED_DIM, num_heads=NUM_HEADS, num_layers=NUM_LAYERS,
+    secondary_rank=SECONDARY_RANK, w_cross_init=W_CROSS_INIT, dropout=DROPOUT
+)
+
+phase1_history = train_model(
+    dual_channel_model, train_loader, test_loader, DEVICE,
+    epochs=EPOCHS, lr=LR, label="Phase 1: Dual-Channel Model"
+)
+
+============================================================
+Training: Phase 1: Dual-Channel Model
+Parameters: 817,294
+============================================================
+  Epoch  1/20 | Loss: 1.8409 | Test Acc: 0.3793 | Time: 26.6s
+  Epoch  2/20 | Loss: 1.6036 | Test Acc: 0.4092 | Time: 24.4s
+  Epoch  3/20 | Loss: 1.4602 | Test Acc: 0.4757 | Time: 24.8s
+  Epoch  4/20 | Loss: 1.3725 | Test Acc: 0.4793 | Time: 25.6s
+  Epoch  5/20 | Loss: 1.3025 | Test Acc: 0.5474 | Time: 24.4s
+  Epoch  6/20 | Loss: 1.2485 | Test Acc: 0.5485 | Time: 24.2s
+  Epoch  7/20 | Loss: 1.2103 | Test Acc: 0.5848 | Time: 24.4s
+  Epoch  8/20 | Loss: 1.1803 | Test Acc: 0.6049 | Time: 24.7s
+  Epoch  9/20 | Loss: 1.1513 | Test Acc: 0.5946 | Time: 24.5s
+  Epoch 10/20 | Loss: 1.1227 | Test Acc: 0.6122 | Time: 24.5s
+  Epoch 11/20 | Loss: 1.1020 | Test Acc: 0.6141 | Time: 24.6s
+  Epoch 12/20 | Loss: 1.0820 | Test Acc: 0.6402 | Time: 24.6s
+  Epoch 13/20 | Loss: 1.0534 | Test Acc: 0.6442 | Time: 24.4s
+  Epoch 14/20 | Loss: 1.0485 | Test Acc: 0.6234 | Time: 24.5s
+  Epoch 15/20 | Loss: 1.0291 | Test Acc: 0.6450 | Time: 24.8s
+  Epoch 16/20 | Loss: 1.0208 | Test Acc: 0.6410 | Time: 24.7s
+  Epoch 17/20 | Loss: 0.9976 | Test Acc: 0.6583 | Time: 24.6s
+  Epoch 18/20 | Loss: 0.9897 | Test Acc: 0.6676 | Time: 24.9s
+  Epoch 19/20 | Loss: 0.9729 | Test Acc: 0.6492 | Time: 24.6s
+  Epoch 20/20 | Loss: 0.9642 | Test Acc: 0.6679 | Time: 24.5s
+
+  Best test accuracy: 0.6679
+Phase 1 Results: w_cross Analysis
+
+[ ]
+# Plot training curves and w_cross evolution
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# Training curves
+epochs = range(1, EPOCHS + 1)
+ax1.plot(epochs, phase1_history['train_loss'], label='Train Loss', color='#4C72B0')
+ax1.set_xlabel('Epoch')
+ax1.set_ylabel('Loss')
+ax1.set_title('Training Loss')
+ax1.legend()
+ax1.grid(alpha=0.3)
+
+ax1_twin = ax1.twinx()
+ax1_twin.plot(epochs, phase1_history['test_acc'], label='Test Acc', color='#DD8452')
+ax1_twin.set_ylabel('Test Accuracy')
+ax1_twin.legend(loc='lower right')
+
+# w_cross evolution
+w_cross_array = np.array(phase1_history['w_cross_history'])  # (epochs, num_layers)
+for layer_idx in range(NUM_LAYERS):
+    ax2.plot(epochs, w_cross_array[:, layer_idx],
+             label=f'Layer {layer_idx}', marker='o', markersize=3)
+
+ax2.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5)
+ax2.axhline(y=-0.1, color='gray', linestyle=':', linewidth=1, alpha=0.5, label='Init (-0.1)')
+ax2.set_xlabel('Epoch')
+ax2.set_ylabel('w_cross value')
+ax2.set_title('w_cross Evolution (Negative = inhibitory)')
+ax2.legend(fontsize=9)
+ax2.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Print final w_cross values
+final_w_cross = phase1_history['w_cross_history'][-1]
+print("\nFinal w_cross values (last epoch):")
+for i, val in enumerate(final_w_cross):
+    print(f"  Layer {i}: {val:.4f}")
+print(f"  Mean: {np.mean(final_w_cross):.4f}")
+print(f"  All negative: {all(v < 0 for v in final_w_cross)}")
+
+Phase 2: Extract Echo Patterns
+Extract the difference between primary and secondary channels. Run PCA to determine if the echo lives in a low-rank subspace.
+
+
+[ ]
+print("\n" + "="*60)
+print("Phase 2: Echo Subspace Analysis")
+print("="*60)
+
+dual_channel_model.eval()
+
+# Collect echo patterns (primary - secondary) for each layer
+echo_patterns = {i: [] for i in range(NUM_LAYERS)}
+
+with torch.no_grad():
+    for batch_idx, (images, labels) in enumerate(test_loader):
+        images = images.to(DEVICE)
+        _ = dual_channel_model(images)  # Forward pass
+
+        # Extract from each layer
+        for layer_idx, block in enumerate(dual_channel_model.blocks):
+            attn = block.attn
+            if attn.primary_out is not None and attn.secondary_out is not None:
+                # (B, H, T, d_h)
+                primary = attn.primary_out
+                secondary = attn.secondary_out
+                echo = primary - secondary  # (B, H, T, d_h)
+
+                # Flatten: (B, H, T, d_h) -> (B*H*T, d_h)
+                echo_flat = echo.reshape(-1, HEAD_DIM).cpu()
+                echo_patterns[layer_idx].append(echo_flat)
+
+        if batch_idx >= 20:  # Use subset for speed
+            break
+
+print(f"Collected echo patterns from {batch_idx+1} batches")
+
+# Concatenate and run PCA for each layer
+pca_results = {}
+
+for layer_idx in range(NUM_LAYERS):
+    echo_data = torch.cat(echo_patterns[layer_idx], dim=0)  # (N, d_h)
+    print(f"\nLayer {layer_idx}: {echo_data.shape[0]} samples, dim={echo_data.shape[1]}")
+
+    # Center the data
+    echo_mean = echo_data.mean(dim=0, keepdim=True)
+    echo_centered = echo_data - echo_mean
+
+    # SVD for PCA
+    U, S, Vt = torch.linalg.svd(echo_centered, full_matrices=False)
+
+    # Variance explained
+    variance = S ** 2
+    total_var = variance.sum()
+    cumulative_var = torch.cumsum(variance, dim=0) / total_var
+
+    # Store results
+    pca_results[layer_idx] = {
+        'components': Vt,  # (d_h, d_h) - each row is a principal component
+        'variance': variance,
+        'cumulative_var': cumulative_var,
+        'mean': echo_mean,
+    }
+
+    # Print variance explained by top components
+    for k in [1, 2, 4, 8, 16]:
+        if k <= len(cumulative_var):
+            var_k = cumulative_var[k-1].item()
+            print(f"  Top-{k} components: {var_k*100:.2f}% variance")
+
+print("\nPCA complete.")
+
+============================================================
+Phase 2: Echo Subspace Analysis
+============================================================
+Collected echo patterns from 21 batches
+
+Layer 0: 1376256 samples, dim=16
+  Top-1 components: 17.53% variance
+  Top-2 components: 32.16% variance
+  Top-4 components: 53.25% variance
+  Top-8 components: 78.84% variance
+  Top-16 components: 100.00% variance
+
+Layer 1: 1376256 samples, dim=16
+  Top-1 components: 17.86% variance
+  Top-2 components: 30.87% variance
+  Top-4 components: 49.81% variance
+  Top-8 components: 76.30% variance
+  Top-16 components: 100.00% variance
+
+Layer 2: 1376256 samples, dim=16
+  Top-1 components: 19.00% variance
+  Top-2 components: 34.07% variance
+  Top-4 components: 54.13% variance
+  Top-8 components: 79.63% variance
+  Top-16 components: 100.00% variance
+
+Layer 3: 1376256 samples, dim=16
+  Top-1 components: 19.26% variance
+  Top-2 components: 31.49% variance
+  Top-4 components: 51.63% variance
+  Top-8 components: 80.90% variance
+  Top-16 components: 100.00% variance
+
+PCA complete.
+Phase 2 Results: Visualize Variance Explained
+
+[ ]
+# Create variance explained table and plot
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+# Cumulative variance curves
+for layer_idx in range(NUM_LAYERS):
+    cumvar = pca_results[layer_idx]['cumulative_var'].numpy()
+    ax1.plot(range(1, len(cumvar)+1), cumvar*100,
+             label=f'Layer {layer_idx}', marker='o', markersize=3)
+
+ax1.axhline(y=90, color='red', linestyle='--', alpha=0.5, label='90%')
+ax1.set_xlabel('Number of Components')
+ax1.set_ylabel('Cumulative Variance Explained (%)')
+ax1.set_title('Echo Subspace: Cumulative Variance Explained')
+ax1.legend(fontsize=9)
+ax1.grid(alpha=0.3)
+ax1.set_xlim(0, HEAD_DIM)
+ax1.set_ylim(0, 105)
+
+# Bar chart: top-4 variance by layer
+top4_vars = [pca_results[i]['cumulative_var'][3].item()*100 for i in range(NUM_LAYERS)]
+layers = [f'Layer {i}' for i in range(NUM_LAYERS)]
+ax2.bar(layers, top4_vars, color='#55A868', edgecolor='black', linewidth=0.8)
+ax2.axhline(y=90, color='red', linestyle='--', alpha=0.5, label='90% threshold')
+ax2.set_ylabel('Variance Explained by Top-4 Components (%)')
+ax2.set_title('Is the Echo Low-Rank?')
+ax2.legend(fontsize=9)
+ax2.grid(axis='y', alpha=0.3)
+
+for i, v in enumerate(top4_vars):
+    ax2.text(i, v + 1, f'{v:.1f}%', ha='center', fontsize=10)
+
+plt.tight_layout()
+plt.show()
+
+# Print summary table
+print("\n" + "="*60)
+print("Variance Explained Summary")
+print("="*60)
+print(f"{'Layer':>6} | {'k=1':>8} | {'k=2':>8} | {'k=4':>8} | {'k=8':>8} | {'k=16':>8}")
+print("-"*60)
+for layer_idx in range(NUM_LAYERS):
+    cumvar = pca_results[layer_idx]['cumulative_var']
+    vals = [cumvar[k-1].item()*100 if k <= len(cumvar) else 0
+            for k in [1, 2, 4, 8, 16]]
+    print(f"  {layer_idx:>4} | {vals[0]:>7.2f}% | {vals[1]:>7.2f}% | "
+          f"{vals[2]:>7.2f}% | {vals[3]:>7.2f}% | {vals[4]:>7.2f}%")
+
+mean_top4 = np.mean(top4_vars)
+print(f"\nMean top-4 variance: {mean_top4:.2f}%")
+if mean_top4 > 80:
+    print("✓ Echo appears to be low-rank (>80% in top-4)")
+else:
+    print("✗ Echo is NOT low-rank (<80% in top-4)")
+
+Phase 3: Build Tier 2.5 Echo Projector
+Replace the secondary channel with a rank-k echo projector. If echo is low-rank, this should match dual-channel performance at a fraction of the cost.
+
+We'll build 4 models:
+
+Baseline: Standard attention, no correction
+Tier 3 (retrained): Full dual-channel from Phase 1, trained fresh
+Tier 2.5 Fixed: Echo projector with FROZEN PCA basis
+Tier 2.5 Learnable: Echo projector with learnable basis
+
+[ ]
+class EchoProjectorAttention(nn.Module):
+    """Standard attention + learned rank-k echo projector."""
+    def __init__(self, d_model=128, num_heads=8, echo_rank=4,
+                 echo_strength_init=-0.1, dropout=0.382, init_basis=None):
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_head = d_model // num_heads
+        self.scale = self.d_head ** -0.5
+        self.echo_rank = echo_rank
+
+        # Standard QKV
+        self.qkv = nn.Linear(d_model, 3 * d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+
+        # Echo basis: (echo_rank, d_head) per head -> (num_heads, echo_rank, d_head)
+        if init_basis is not None:
+            # Initialize from PCA components
+            self.echo_basis = nn.Parameter(init_basis.clone())
+        else:
+            # Random initialization
+            basis = torch.randn(num_heads, echo_rank, self.d_head) * 0.02
+            self.echo_basis = nn.Parameter(basis)
+
+        # Echo strength: one scalar per head
+        self.echo_strength = nn.Parameter(
+            torch.full((num_heads,), echo_strength_init)
+        )
+
+        # Dropout
+        self.attn_drop = nn.Dropout(dropout)
+        self.proj_drop = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # x: (B, T, D)
+        B, T, D = x.shape
+        H = self.num_heads
+        d_h = self.d_head
+
+        # Standard attention
+        qkv = self.qkv(x).reshape(B, T, 3, H, d_h).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]  # (B, H, T, d_h)
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale  # (B, H, T, T)
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        primary_out = attn @ v  # (B, H, T, d_h)
+
+        # Echo projector: project onto echo subspace and subtract
+        # For each head h: echo_h = x @ basis_h^T @ basis_h
+        # Reshape primary_out for per-head projection
+        x_heads = primary_out  # (B, H, T, d_h)
+
+        # Compute projection: x @ basis^T @ basis
+        # basis: (H, k, d_h)
+        # x_heads: (B, H, T, d_h)
+        # Step 1: x @ basis^T -> (B, H, T, k)
+        proj_coeff = torch.einsum('bhtd,hkd->bhtk', x_heads, self.echo_basis)
+        # Step 2: coeff @ basis -> (B, H, T, d_h)
+        echo_component = torch.einsum('bhtk,hkd->bhtd', proj_coeff, self.echo_basis)
+
+        # Subtract echo: output = primary - strength * echo
+        strength = self.echo_strength.view(1, H, 1, 1)  # (1, H, 1, 1)
+        head_out = primary_out - strength * echo_component  # (B, H, T, d_h)
+
+        # Reassemble
+        out = head_out.permute(0, 2, 1, 3).reshape(B, T, D)  # (B, T, D)
+        out = self.out_proj(out)
+        out = self.proj_drop(out)
+        return out
+
+print("EchoProjectorAttention defined.")
+EchoProjectorAttention defined.
+
+[ ]
+# Helper: Build echo projector transformer
+class EchoProjectorTransformer(nn.Module):
+    def __init__(self, img_size=32, patch_size=4, in_channels=3, num_classes=10,
+                 d_model=128, num_heads=8, num_layers=4, echo_rank=4,
+                 echo_strength_init=-0.1, dropout=0.382, init_bases=None):
+        super().__init__()
+        self.patch_embed = PatchEmbedding(patch_size, in_channels, d_model, img_size)
+        self.embed_drop = nn.Dropout(dropout)
+
+        self.blocks = nn.ModuleList()
+        for layer_idx in range(num_layers):
+            # Get init basis for this layer if provided
+            init_basis = init_bases[layer_idx] if init_bases is not None else None
+
+            attn = EchoProjectorAttention(
+                d_model, num_heads, echo_rank, echo_strength_init, dropout, init_basis
+            )
+
+            block = nn.Module()
+            block.norm1 = nn.LayerNorm(d_model)
+            block.attn = attn
+            block.norm2 = nn.LayerNorm(d_model)
+            ffn_dim = d_model * 4
+            block.ffn = nn.Sequential(
+                nn.Linear(d_model, ffn_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(ffn_dim, d_model),
+                nn.Dropout(dropout),
+            )
+            block.forward = lambda x, b=block: b.ffn(b.norm2(x + b.attn(b.norm1(x))))
+            self.blocks.append(block)
+
+        self.norm = nn.LayerNorm(d_model)
+        self.head = nn.Linear(d_model, num_classes)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        x = self.patch_embed(x)
+        x = self.embed_drop(x)
+        for block in self.blocks:
+            x = x + block.attn(block.norm1(x))
+            x = x + block.ffn(block.norm2(x))
+        x = x.mean(dim=1)
+        x = self.norm(x)
+        return self.head(x)
+
+print("EchoProjectorTransformer defined.")
+EchoProjectorTransformer defined.
+
+[ ]
+# Standard baseline (no echo correction)
+class StandardAttention(nn.Module):
+    def __init__(self, d_model=128, num_heads=8, dropout=0.382):
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_head = d_model // num_heads
+        self.scale = self.d_head ** -0.5
+
+        self.qkv = nn.Linear(d_model, 3 * d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.attn_drop = nn.Dropout(dropout)
+        self.proj_drop = nn.Dropout(dropout)
+
+    def forward(self, x):
+        B, T, D = x.shape
+        H = self.num_heads
+        d_h = self.d_head
+
+        qkv = self.qkv(x).reshape(B, T, 3, H, d_h).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+        out = attn @ v
+
+        out = out.permute(0, 2, 1, 3).reshape(B, T, D)
+        out = self.out_proj(out)
+        out = self.proj_drop(out)
+        return out
+
+class StandardTransformer(nn.Module):
+    def __init__(self, img_size=32, patch_size=4, in_channels=3, num_classes=10,
+                 d_model=128, num_heads=8, num_layers=4, dropout=0.382):
+        super().__init__()
+        self.patch_embed = PatchEmbedding(patch_size, in_channels, d_model, img_size)
+        self.embed_drop = nn.Dropout(dropout)
+
+        self.blocks = nn.ModuleList()
+        for _ in range(num_layers):
+            block = nn.Module()
+            block.norm1 = nn.LayerNorm(d_model)
+            block.attn = StandardAttention(d_model, num_heads, dropout)
+            block.norm2 = nn.LayerNorm(d_model)
+            ffn_dim = d_model * 4
+            block.ffn = nn.Sequential(
+                nn.Linear(d_model, ffn_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(ffn_dim, d_model),
+                nn.Dropout(dropout),
+            )
+            self.blocks.append(block)
+
+        self.norm = nn.LayerNorm(d_model)
+        self.head = nn.Linear(d_model, num_classes)
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.trunc_normal_(m.weight, std=0.02)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, x):
+        x = self.patch_embed(x)
+        x = self.embed_drop(x)
+        for block in self.blocks:
+            x = x + block.attn(block.norm1(x))
+            x = x + block.ffn(block.norm2(x))
+        x = x.mean(dim=1)
+        x = self.norm(x)
+        return self.head(x)
+
+print("StandardTransformer defined.")
+StandardTransformer defined.
+Phase 3: Train All Models
+
+[ ]
+# Extract PCA bases for initialization
+# For each layer, take top-4 principal components and reshape for each head
+pca_bases = []
+for layer_idx in range(NUM_LAYERS):
+    # pca_results[layer_idx]['components']: (d_head, d_head)
+    # We want top-4 components for each of NUM_HEADS heads
+    # Shape needed: (NUM_HEADS, 4, HEAD_DIM)
+    top_k = pca_results[layer_idx]['components'][:4]  # (4, d_head)
+    # Replicate for all heads
+    basis = top_k.unsqueeze(0).repeat(NUM_HEADS, 1, 1)  # (NUM_HEADS, 4, d_head)
+    pca_bases.append(basis)
+
+print(f"Initialized PCA bases: {len(pca_bases)} layers, shape {pca_bases[0].shape}")
+Initialized PCA bases: 4 layers, shape torch.Size([8, 4, 16])
+
+[ ]
+print("\n" + "="*60)
+print("Phase 3: Training Comparison Models")
+print("="*60)
+
+# 1. Baseline: Standard attention
+torch.manual_seed(SEED)
+baseline_model = StandardTransformer(
+    img_size=32, patch_size=PATCH_SIZE, num_classes=NUM_CLASSES,
+    d_model=EMBED_DIM, num_heads=NUM_HEADS, num_layers=NUM_LAYERS, dropout=DROPOUT
+)
+baseline_history = train_model(
+    baseline_model, train_loader, test_loader, DEVICE,
+    epochs=EPOCHS, lr=LR, label="1. Baseline (Standard Attention)"
+)
+
+============================================================
+Phase 3: Training Comparison Models
+============================================================
+
+============================================================
+Training: 1. Baseline (Standard Attention)
+Parameters: 809,098
+============================================================
+  Epoch  1/20 | Loss: 1.8387 | Test Acc: 0.3408 | Time: 21.4s
+  Epoch  2/20 | Loss: 1.5961 | Test Acc: 0.4224 | Time: 20.8s
+  Epoch  3/20 | Loss: 1.4700 | Test Acc: 0.4806 | Time: 21.3s
+  Epoch  4/20 | Loss: 1.3796 | Test Acc: 0.5199 | Time: 20.7s
+  Epoch  5/20 | Loss: 1.3129 | Test Acc: 0.5514 | Time: 25.2s
+  Epoch  6/20 | Loss: 1.2639 | Test Acc: 0.5704 | Time: 21.0s
+  Epoch  7/20 | Loss: 1.2240 | Test Acc: 0.5886 | Time: 21.2s
+  Epoch  8/20 | Loss: 1.1828 | Test Acc: 0.5999 | Time: 21.7s
+  Epoch  9/20 | Loss: 1.1677 | Test Acc: 0.6114 | Time: 23.1s
+  Epoch 10/20 | Loss: 1.1391 | Test Acc: 0.6077 | Time: 22.1s
+  Epoch 11/20 | Loss: 1.1113 | Test Acc: 0.6078 | Time: 22.0s
+  Epoch 12/20 | Loss: 1.0929 | Test Acc: 0.6169 | Time: 22.5s
+  Epoch 13/20 | Loss: 1.0749 | Test Acc: 0.6204 | Time: 22.4s
+  Epoch 14/20 | Loss: 1.0556 | Test Acc: 0.6554 | Time: 22.5s
+  Epoch 15/20 | Loss: 1.0387 | Test Acc: 0.6363 | Time: 22.3s
+  Epoch 16/20 | Loss: 1.0302 | Test Acc: 0.6416 | Time: 21.1s
+  Epoch 17/20 | Loss: 1.0104 | Test Acc: 0.6586 | Time: 21.2s
+  Epoch 18/20 | Loss: 0.9978 | Test Acc: 0.6510 | Time: 20.8s
+  Epoch 19/20 | Loss: 0.9922 | Test Acc: 0.6700 | Time: 21.6s
+  Epoch 20/20 | Loss: 0.9713 | Test Acc: 0.6585 | Time: 22.0s
+
+  Best test accuracy: 0.6700
+
+[ ]
+# 2. Tier 3: Dual-channel (retrained)
+torch.manual_seed(SEED)
+tier3_model = DualChannelTransformer(
+    img_size=32, patch_size=PATCH_SIZE, num_classes=NUM_CLASSES,
+    d_model=EMBED_DIM, num_heads=NUM_HEADS, num_layers=NUM_LAYERS,
+    secondary_rank=SECONDARY_RANK, w_cross_init=W_CROSS_INIT, dropout=DROPOUT
+)
+tier3_history = train_model(
+    tier3_model, train_loader, test_loader, DEVICE,
+    epochs=EPOCHS, lr=LR, label="2. Tier 3 (Dual-Channel)"
+)
+
+============================================================
+Training: 2. Tier 3 (Dual-Channel)
+Parameters: 817,294
+============================================================
+  Epoch  1/20 | Loss: 1.8409 | Test Acc: 0.3793 | Time: 24.8s
+  Epoch  2/20 | Loss: 1.6036 | Test Acc: 0.4091 | Time: 25.0s
+  Epoch  3/20 | Loss: 1.4602 | Test Acc: 0.4758 | Time: 24.6s
+  Epoch  4/20 | Loss: 1.3725 | Test Acc: 0.4793 | Time: 25.1s
+  Epoch  5/20 | Loss: 1.3025 | Test Acc: 0.5470 | Time: 24.7s
+  Epoch  6/20 | Loss: 1.2485 | Test Acc: 0.5494 | Time: 24.9s
+  Epoch  7/20 | Loss: 1.2105 | Test Acc: 0.5825 | Time: 24.9s
+  Epoch  8/20 | Loss: 1.1805 | Test Acc: 0.6017 | Time: 24.4s
+  Epoch  9/20 | Loss: 1.1515 | Test Acc: 0.5954 | Time: 25.1s
+  Epoch 10/20 | Loss: 1.1228 | Test Acc: 0.6114 | Time: 24.4s
+  Epoch 11/20 | Loss: 1.1011 | Test Acc: 0.6143 | Time: 24.6s
+  Epoch 12/20 | Loss: 1.0816 | Test Acc: 0.6408 | Time: 24.6s
+  Epoch 13/20 | Loss: 1.0555 | Test Acc: 0.6476 | Time: 24.8s
+  Epoch 14/20 | Loss: 1.0478 | Test Acc: 0.6349 | Time: 24.8s
+  Epoch 15/20 | Loss: 1.0289 | Test Acc: 0.6478 | Time: 25.1s
+  Epoch 16/20 | Loss: 1.0184 | Test Acc: 0.6502 | Time: 24.6s
+  Epoch 17/20 | Loss: 0.9987 | Test Acc: 0.6564 | Time: 24.5s
+  Epoch 18/20 | Loss: 0.9868 | Test Acc: 0.6695 | Time: 24.9s
+  Epoch 19/20 | Loss: 0.9715 | Test Acc: 0.6543 | Time: 24.6s
+  Epoch 20/20 | Loss: 0.9635 | Test Acc: 0.6711 | Time: 24.7s
+
+  Best test accuracy: 0.6711
+
+[ ]
+# 3. Tier 2.5 Fixed: Echo projector with frozen PCA basis
+torch.manual_seed(SEED)
+tier25_fixed_model = EchoProjectorTransformer(
+    img_size=32, patch_size=PATCH_SIZE, num_classes=NUM_CLASSES,
+    d_model=EMBED_DIM, num_heads=NUM_HEADS, num_layers=NUM_LAYERS,
+    echo_rank=4, echo_strength_init=-0.1, dropout=DROPOUT,
+    init_bases=pca_bases
+)
+# Freeze echo_basis parameters
+for name, param in tier25_fixed_model.named_parameters():
+    if 'echo_basis' in name:
+        param.requires_grad = False
+
+tier25_fixed_history = train_model(
+    tier25_fixed_model, train_loader, test_loader, DEVICE,
+    epochs=EPOCHS, lr=LR, label="3. Tier 2.5 Fixed (Frozen PCA basis)"
+)
+
+============================================================
+Training: 3. Tier 2.5 Fixed (Frozen PCA basis)
+Parameters: 809,130
+============================================================
+  Epoch  1/20 | Loss: 1.8382 | Test Acc: 0.3443 | Time: 22.6s
+  Epoch  2/20 | Loss: 1.5942 | Test Acc: 0.4297 | Time: 22.8s
+  Epoch  3/20 | Loss: 1.4678 | Test Acc: 0.4965 | Time: 23.1s
+  Epoch  4/20 | Loss: 1.3753 | Test Acc: 0.5302 | Time: 23.1s
+  Epoch  5/20 | Loss: 1.3101 | Test Acc: 0.5634 | Time: 23.1s
+  Epoch  6/20 | Loss: 1.2587 | Test Acc: 0.5835 | Time: 23.4s
+  Epoch  7/20 | Loss: 1.2160 | Test Acc: 0.5900 | Time: 23.0s
+  Epoch  8/20 | Loss: 1.1819 | Test Acc: 0.5946 | Time: 22.8s
+  Epoch  9/20 | Loss: 1.1572 | Test Acc: 0.6054 | Time: 22.6s
+  Epoch 10/20 | Loss: 1.1359 | Test Acc: 0.6039 | Time: 22.6s
+  Epoch 11/20 | Loss: 1.1065 | Test Acc: 0.6077 | Time: 22.9s
+  Epoch 12/20 | Loss: 1.0889 | Test Acc: 0.6156 | Time: 22.6s
+  Epoch 13/20 | Loss: 1.0740 | Test Acc: 0.6292 | Time: 22.6s
+  Epoch 14/20 | Loss: 1.0515 | Test Acc: 0.6565 | Time: 22.6s
+  Epoch 15/20 | Loss: 1.0355 | Test Acc: 0.6367 | Time: 22.7s
+  Epoch 16/20 | Loss: 1.0259 | Test Acc: 0.6340 | Time: 22.7s
+  Epoch 17/20 | Loss: 1.0078 | Test Acc: 0.6462 | Time: 22.7s
+  Epoch 18/20 | Loss: 0.9926 | Test Acc: 0.6622 | Time: 22.9s
+  Epoch 19/20 | Loss: 0.9860 | Test Acc: 0.6601 | Time: 22.9s
+  Epoch 20/20 | Loss: 0.9707 | Test Acc: 0.6562 | Time: 22.3s
+
+  Best test accuracy: 0.6622
+
+[ ]
+# 4. Tier 2.5 Learnable: Echo projector with learnable basis
+torch.manual_seed(SEED)
+tier25_learn_model = EchoProjectorTransformer(
+    img_size=32, patch_size=PATCH_SIZE, num_classes=NUM_CLASSES,
+    d_model=EMBED_DIM, num_heads=NUM_HEADS, num_layers=NUM_LAYERS,
+    echo_rank=4, echo_strength_init=-0.1, dropout=DROPOUT,
+    init_bases=pca_bases  # Initialize from PCA, but allow learning
+)
+tier25_learn_history = train_model(
+    tier25_learn_model, train_loader, test_loader, DEVICE,
+    epochs=EPOCHS, lr=LR, label="4. Tier 2.5 Learnable (PCA-init, learnable)"
+)
+
+============================================================
+Training: 4. Tier 2.5 Learnable (PCA-init, learnable)
+Parameters: 811,178
+============================================================
+  Epoch  1/20 | Loss: 1.8381 | Test Acc: 0.3446 | Time: 23.1s
+  Epoch  2/20 | Loss: 1.5932 | Test Acc: 0.4257 | Time: 23.4s
+  Epoch  3/20 | Loss: 1.4676 | Test Acc: 0.4949 | Time: 23.0s
+  Epoch  4/20 | Loss: 1.3762 | Test Acc: 0.5208 | Time: 23.1s
+  Epoch  5/20 | Loss: 1.3124 | Test Acc: 0.5562 | Time: 23.0s
+  Epoch  6/20 | Loss: 1.2604 | Test Acc: 0.5750 | Time: 23.1s
+  Epoch  7/20 | Loss: 1.2191 | Test Acc: 0.5849 | Time: 22.9s
+  Epoch  8/20 | Loss: 1.1867 | Test Acc: 0.5908 | Time: 23.1s
+  Epoch  9/20 | Loss: 1.1639 | Test Acc: 0.6026 | Time: 23.3s
+  Epoch 10/20 | Loss: 1.1371 | Test Acc: 0.5997 | Time: 23.1s
+  Epoch 11/20 | Loss: 1.1087 | Test Acc: 0.6048 | Time: 22.9s
+  Epoch 12/20 | Loss: 1.0952 | Test Acc: 0.6098 | Time: 23.0s
+  Epoch 13/20 | Loss: 1.0748 | Test Acc: 0.6255 | Time: 23.3s
+  Epoch 14/20 | Loss: 1.0587 | Test Acc: 0.6496 | Time: 23.0s
+  Epoch 15/20 | Loss: 1.0357 | Test Acc: 0.6312 | Time: 23.2s
+  Epoch 16/20 | Loss: 1.0327 | Test Acc: 0.6396 | Time: 23.0s
+  Epoch 17/20 | Loss: 1.0121 | Test Acc: 0.6449 | Time: 22.5s
+  Epoch 18/20 | Loss: 0.9987 | Test Acc: 0.6560 | Time: 23.3s
+  Epoch 19/20 | Loss: 0.9872 | Test Acc: 0.6713 | Time: 23.4s
+  Epoch 20/20 | Loss: 0.9771 | Test Acc: 0.6566 | Time: 23.5s
+
+  Best test accuracy: 0.6713
+Phase 3 Results: Comparison
+
+[ ]
+# Comparison table
+models_data = [
+    ('Baseline', baseline_model, baseline_history),
+    ('Tier 3', tier3_model, tier3_history),
+    ('Tier 2.5 Fixed', tier25_fixed_model, tier25_fixed_history),
+    ('Tier 2.5 Learnable', tier25_learn_model, tier25_learn_history),
+]
+
+print("\n" + "="*70)
+print("Phase 3 Results: Accuracy Comparison")
+print("="*70)
+print(f"{'Model':25} | {'Params':>10} | {'Best Acc':>10} | {'vs Baseline':>12}")
+print("-"*70)
+
+baseline_acc = max(baseline_history['test_acc'])
+for name, model, history in models_data:
+    params = count_parameters(model)
+    best_acc = max(history['test_acc'])
+    delta = best_acc - baseline_acc
+    sign = '+' if delta >= 0 else ''
+    print(f"{name:25} | {params:>10,} | {best_acc:>10.4f} | {sign}{delta:>11.4f}")
+
+# Parameter efficiency
+print("\n" + "="*70)
+print("Parameter Efficiency (Accuracy / 100K params)")
+print("="*70)
+for name, model, history in models_data:
+    params = count_parameters(model)
+    best_acc = max(history['test_acc'])
+    efficiency = best_acc / (params / 100000)
+    print(f"{name:25} | {efficiency:.4f}")
+
+======================================================================
+Phase 3 Results: Accuracy Comparison
+======================================================================
+Model                     |     Params |   Best Acc |  vs Baseline
+----------------------------------------------------------------------
+Baseline                  |    809,098 |     0.6700 | +     0.0000
+Tier 3                    |    817,294 |     0.6711 | +     0.0011
+Tier 2.5 Fixed            |    809,130 |     0.6622 |     -0.0078
+Tier 2.5 Learnable        |    811,178 |     0.6713 | +     0.0013
+
+======================================================================
+Parameter Efficiency (Accuracy / 100K params)
+======================================================================
+Baseline                  | 0.0828
+Tier 3                    | 0.0821
+Tier 2.5 Fixed            | 0.0818
+Tier 2.5 Learnable        | 0.0828
+
+[ ]
+# Training curves comparison
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+colors = ['#4C72B0', '#DD8452', '#55A868', '#C44E52']
+epochs = range(1, EPOCHS + 1)
+
+for (name, _, history), color in zip(models_data, colors):
+    ax1.plot(epochs, history['train_loss'], label=name, color=color, linewidth=2)
+    ax2.plot(epochs, history['test_acc'], label=name, color=color, linewidth=2)
+
+ax1.set_xlabel('Epoch')
+ax1.set_ylabel('Training Loss')
+ax1.set_title('Training Loss')
+ax1.legend(fontsize=9)
+ax1.grid(alpha=0.3)
+
+ax2.set_xlabel('Epoch')
+ax2.set_ylabel('Test Accuracy')
+ax2.set_title('Test Accuracy')
+ax2.legend(fontsize=9)
+ax2.grid(alpha=0.3)
+
+plt.suptitle('Phase 3: Training Curves Comparison', fontsize=13, y=1.02)
+plt.tight_layout()
+plt.show()
+
+
+[ ]
+# Bar chart: accuracy and params
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+names = [d[0] for d in models_data]
+accs = [max(d[2]['test_acc']) for d in models_data]
+params = [count_parameters(d[1]) for d in models_data]
+
+# Accuracy
+bars1 = ax1.bar(names, accs, color=colors, edgecolor='black', linewidth=0.8)
+ax1.set_ylabel('Best Test Accuracy')
+ax1.set_title('Accuracy Comparison')
+for bar, acc in zip(bars1, accs):
+    ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.005,
+             f'{acc:.4f}', ha='center', fontsize=9)
+ax1.tick_params(axis='x', rotation=15)
+
+# Parameters
+bars2 = ax2.bar(names, [p/1000 for p in params], color=colors, edgecolor='black', linewidth=0.8)
+ax2.set_ylabel('Parameters (thousands)')
+ax2.set_title('Parameter Count')
+for bar, p in zip(bars2, params):
+    ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 5,
+             f'{p:,}', ha='center', fontsize=9)
+ax2.tick_params(axis='x', rotation=15)
+
+plt.tight_layout()
+plt.show()
+
+Phase 4: Self-Similarity Analysis
+If the echo subspace has consistent structure across layers, the contamination pattern is self-referential — echo of echo.
+
+
+[ ]
+print("\n" + "="*60)
+print("Phase 4: Self-Similarity Analysis")
+print("="*60)
+
+# Compute cosine similarity between top-4 components across layers
+# For each component rank k, build a (NUM_LAYERS x NUM_LAYERS) similarity matrix
+
+def cosine_similarity_components(comp1, comp2):
+    """Cosine similarity between two sets of principal components.
+    comp1, comp2: (k, d) tensors
+    Returns: mean cosine similarity across k components
+    """
+    comp1_norm = F.normalize(comp1, p=2, dim=1)
+    comp2_norm = F.normalize(comp2, p=2, dim=1)
+    # Compute similarity matrix (k, k)
+    sim_matrix = comp1_norm @ comp2_norm.T
+    # Take diagonal (matching components)
+    return sim_matrix.diag().mean().item()
+
+# Build similarity matrix for top-4 components
+k = 4
+sim_matrix = np.zeros((NUM_LAYERS, NUM_LAYERS))
+
+for i in range(NUM_LAYERS):
+    for j in range(NUM_LAYERS):
+        comp_i = pca_results[i]['components'][:k]  # (k, d_h)
+        comp_j = pca_results[j]['components'][:k]  # (k, d_h)
+        sim_matrix[i, j] = cosine_similarity_components(comp_i, comp_j)
+
+print(f"\nCross-layer similarity matrix (top-{k} components):")
+print("       ", end="")
+for j in range(NUM_LAYERS):
+    print(f"  L{j}  ", end="")
+print()
+for i in range(NUM_LAYERS):
+    print(f"  L{i}:  ", end="")
+    for j in range(NUM_LAYERS):
+        print(f"{sim_matrix[i, j]:6.3f}", end="")
+    print()
+
+# Mean off-diagonal similarity
+off_diag = [sim_matrix[i, j] for i in range(NUM_LAYERS)
+            for j in range(NUM_LAYERS) if i != j]
+mean_sim = np.mean(off_diag)
+print(f"\nMean cross-layer similarity: {mean_sim:.3f}")
+if mean_sim > 0.7:
+    print("✓ Echo subspace is highly self-similar across layers")
+else:
+    print("✗ Echo subspace is NOT self-similar across layers")
+
+============================================================
+Phase 4: Self-Similarity Analysis
+============================================================
+
+Cross-layer similarity matrix (top-4 components):
+         L0    L1    L2    L3  
+  L0:   1.000-0.046-0.128 0.049
+  L1:  -0.046 1.000 0.200 0.001
+  L2:  -0.128 0.200 1.000-0.003
+  L3:   0.049 0.001-0.003 1.000
+
+Mean cross-layer similarity: 0.012
+✗ Echo subspace is NOT self-similar across layers
+
+[ ]
+# Heatmap of similarity matrix
+fig, ax = plt.subplots(figsize=(8, 6))
+
+im = ax.imshow(sim_matrix, cmap='YlOrRd', vmin=0, vmax=1)
+ax.set_xticks(range(NUM_LAYERS))
+ax.set_yticks(range(NUM_LAYERS))
+ax.set_xticklabels([f'L{i}' for i in range(NUM_LAYERS)])
+ax.set_yticklabels([f'L{i}' for i in range(NUM_LAYERS)])
+ax.set_xlabel('Layer')
+ax.set_ylabel('Layer')
+ax.set_title(f'Echo Subspace Cross-Layer Similarity\n(Top-{k} PCA components, cosine similarity)')
+
+# Annotate cells
+for i in range(NUM_LAYERS):
+    for j in range(NUM_LAYERS):
+        text = ax.text(j, i, f'{sim_matrix[i, j]:.2f}',
+                      ha="center", va="center", color="black", fontsize=11)
+
+plt.colorbar(im, ax=ax, label='Cosine Similarity')
+plt.tight_layout()
+plt.show()
+
+
+[ ]
+# Check if echo magnitude scales with depth
+# |echo(d)| = a * r^d
+# If r ≈ 1/phi^2, the echo is self-similar
+
+# Compute mean echo magnitude per layer from w_cross history
+final_w_cross = phase1_history['w_cross_history'][-1]
+echo_mags = [abs(w) for w in final_w_cross]
+
+print("\nEcho magnitude vs. depth:")
+for i, mag in enumerate(echo_mags):
+    print(f"  Layer {i}: |w_cross| = {mag:.4f}")
+
+# Fit exponential: log(|echo|) = log(a) + d*log(r)
+if len(echo_mags) >= 3:
+    depths = np.arange(NUM_LAYERS)
+    log_mags = np.log(echo_mags)
+
+    # Linear fit
+    A = np.vstack([depths, np.ones(len(depths))]).T
+    log_r, log_a = np.linalg.lstsq(A, log_mags, rcond=None)[0]
+    r = np.exp(log_r)
+    a = np.exp(log_a)
+
+    print(f"\nExponential fit: |echo(d)| = {a:.4f} * {r:.4f}^d")
+    print(f"  Scaling ratio r = {r:.4f}")
+    print(f"  1/phi^2 = {1/PHI**2:.4f}")
+    print(f"  Distance from 1/phi^2: {abs(r - 1/PHI**2):.4f}")
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(depths, echo_mags, 'o', markersize=8, label='Measured |w_cross|', color='#4C72B0')
+    ax.plot(depths, a * r**depths, '--', label=f'Fit: {a:.3f} * {r:.3f}^d',
+            color='#DD8452', linewidth=2)
+    ax.set_xlabel('Layer Depth')
+    ax.set_ylabel('Echo Magnitude |w_cross|')
+    ax.set_title('Echo Magnitude vs. Depth\n(Self-similar if r ≈ 1/φ²)')
+    ax.legend()
+    ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+Grand Summary
+
+[ ]
+print("\n" + "="*70)
+print("GRAND SUMMARY: Echo Subspace Experiment")
+print("="*70)
+
+print("\n1. Is the echo low-rank?")
+mean_top4_var = np.mean([pca_results[i]['cumulative_var'][3].item()*100
+                         for i in range(NUM_LAYERS)])
+print(f"   Mean top-4 variance: {mean_top4_var:.2f}%")
+if mean_top4_var > 80:
+    print("   ✓ YES - Echo is low-rank (>80% variance in top-4)")
+else:
+    print("   ✗ NO - Echo is NOT low-rank (<80% variance in top-4)")
+
+print("\n2. Does Tier 2.5 match Tier 3?")
+tier3_acc = max(tier3_history['test_acc'])
+tier25_learn_acc = max(tier25_learn_history['test_acc'])
+tier25_fixed_acc = max(tier25_fixed_history['test_acc'])
+print(f"   Tier 3 (Dual-Channel):    {tier3_acc:.4f}")
+print(f"   Tier 2.5 (Learnable):     {tier25_learn_acc:.4f} ({tier25_learn_acc-tier3_acc:+.4f})")
+print(f"   Tier 2.5 (Fixed):         {tier25_fixed_acc:.4f} ({tier25_fixed_acc-tier3_acc:+.4f})")
+if abs(tier25_learn_acc - tier3_acc) < 0.01:
+    print("   ✓ YES - Tier 2.5 matches Tier 3 performance")
+else:
+    print("   ✗ NO - Tier 2.5 does not match Tier 3")
+
+print("\n3. Is the echo self-similar?")
+print(f"   Cross-layer similarity: {mean_sim:.3f}")
+if mean_sim > 0.7:
+    print("   ✓ YES - Echo subspace is self-similar across layers")
+else:
+    print("   ✗ NO - Echo subspace is NOT self-similar")
+
+print("\n4. Parameter savings (Tier 2.5 vs Tier 3)")
+tier3_params = count_parameters(tier3_model)
+tier25_params = count_parameters(tier25_learn_model)
+savings = tier3_params - tier25_params
+savings_pct = savings / tier3_params * 100
+print(f"   Tier 3:   {tier3_params:,} params")
+print(f"   Tier 2.5: {tier25_params:,} params")
+print(f"   Savings:  {savings:,} params ({savings_pct:.1f}%)")
+
+print("\n" + "="*70)
+print("What this means for architecture design:")
+print("="*70)
+if mean_top4_var > 80 and abs(tier25_learn_acc - tier3_acc) < 0.01:
+    print("\n✓ The 'eraser' hypothesis is CONFIRMED:")
+    print("  - Echo contamination lives in a low-rank subspace")
+    print("  - A cheap rank-k projector can replace expensive dual-channel attention")
+    print(f"  - Parameter savings: {savings_pct:.1f}% with matched performance")
+    print("  - 'One camera and an eraser' works!")
+else:
+    print("\n✗ The 'eraser' hypothesis is NOT confirmed at this scale:")
+    if mean_top4_var <= 80:
+        print("  - Echo is NOT sufficiently low-rank")
+    if abs(tier25_learn_acc - tier3_acc) >= 0.01:
+        print(f"  - Tier 2.5 underperforms Tier 3 by {abs(tier25_learn_acc - tier3_acc):.4f}")
+    print("  - Full dual-channel architecture may be necessary")
+
+print("\nExperiment complete!")
+
+======================================================================
+GRAND SUMMARY: Echo Subspace Experiment
+======================================================================
+
+1. Is the echo low-rank?
+   Mean top-4 variance: 52.21%
+   ✗ NO - Echo is NOT low-rank (<80% variance in top-4)
+
+2. Does Tier 2.5 match Tier 3?
+   Tier 3 (Dual-Channel):    0.6711
+   Tier 2.5 (Learnable):     0.6713 (+0.0002)
+   Tier 2.5 (Fixed):         0.6622 (-0.0089)
+   ✓ YES - Tier 2.5 matches Tier 3 performance
+
+3. Is the echo self-similar?
+   Cross-layer similarity: 0.012
+   ✗ NO - Echo subspace is NOT self-similar
+
+4. Parameter savings (Tier 2.5 vs Tier 3)
+   Tier 3:   817,294 params
+   Tier 2.5: 811,178 params
+   Savings:  6,116 params (0.7%)
+
+======================================================================
+What this means for architecture design:
+======================================================================
+
+✗ The 'eraser' hypothesis is NOT confirmed at this scale:
+  - Echo is NOT sufficiently low-rank
+  - Full dual-channel architecture may be necessary
+
+Experiment complete!

@@ -1962,4 +1962,77 @@ Note: The golden ratio is NOT a universal optimum for all error correction (see 
 
 ---
 
-*Analysis updated 2026-02-17. All experiments reproducible from listed scripts.*
+## 33. Echo Subspace Analysis (Experiment 31)
+
+### Motivation
+
+The GPU validation (Exp 30, Section 32) confirmed that dual-channel Observer Attention (Tier 3) works: w_cross stays negative across all layers, depth gradient is present, and the architecture matches baseline performance. But does the echo (primary - secondary difference) have exploitable structure? If the contamination is low-rank, we could correct it with a cheaper projector. If it's self-similar across layers, one universal correction basis might work everywhere.
+
+### Four-Phase Investigation
+
+**Phase 1 — Dual-channel training:**
+- Model: 817,294 parameters (Tier 3 variant)
+- Best accuracy: 66.79%
+- w_cross: ALL negative in all 4 layers, magnitude increasing with depth (-0.32 to -0.48)
+- Depth gradient confirmed again
+
+**Phase 2 — PCA of echo patterns:**
+We computed echo = primary - secondary for all 8 heads (each with 16-dim output, total 128-dim) at each layer, then applied PCA to measure dimensionality.
+
+| Layer | Top-4 Variance Explained | Verdict |
+|-------|------------------------|---------|
+| 0 | 53.25% | NOT low-rank |
+| 1 | 49.81% | NOT low-rank |
+| 2 | 54.13% | NOT low-rank |
+| 3 | 51.63% | NOT low-rank |
+
+**Mean: 52.2%** — close to uniform distribution across 16 dimensions. The standard threshold for "low-rank" is 80%+. **The echo is NOT low-rank.**
+
+**Phase 3 — Four-model comparison:**
+
+| Model | Params | Best Acc | vs Baseline |
+|-------|--------|----------|-------------|
+| Baseline (standard attention) | 809,098 | 67.00% | — |
+| Tier 3 (dual-channel) | 817,294 | 67.11% | +0.11% |
+| Tier 2.5 Fixed (frozen PCA basis) | 809,130 | 66.22% | -0.78% |
+| Tier 2.5 Learnable (PCA-init, learnable) | 811,178 | 67.13% | +0.13% |
+
+**Critical finding:** Tier 2.5 Learnable MATCHES Tier 3 performance with fewer parameters. The learnable rank-4 projector discovers correction directions that differ from PCA's maximum-variance directions.
+
+**Phase 4 — Self-similarity analysis:**
+Cross-layer cosine similarity of echo patterns shows mean off-diagonal similarity of **0.012** (essentially random). The echo is NOT self-similar across layers. Each layer faces completely different contamination structure.
+
+### Key Results
+
+1. **Echo is NOT low-rank** — Only ~52% variance in top-4 components, far below the 80% threshold. Contamination spreads across most dimensions.
+
+2. **Tier 2.5 Learnable matches Tier 3** — 67.13% vs 67.11% accuracy. The "smart eraser" works: you can correct echo with a cheap projector IF it's learned end-to-end with the task.
+
+3. **Tier 2.5 Fixed FAILS** — Frozen PCA basis achieves only 66.22%, worse than baseline. Maximum variance ≠ maximum correction utility. The correction basis must be task-learned, not pre-computed.
+
+4. **Echo is NOT self-similar** — Cross-layer similarity ~0.012 is random. No universal correction basis exists. Per-layer correction is required.
+
+5. **The "child's eraser" hypothesis is PARTIALLY confirmed** — You can erase cheaply (rank-4 vs full dual-channel), but the eraser must be:
+   - Learned per-layer (not universal)
+   - Learned end-to-end (not frozen from PCA)
+   - Intelligently initialized (PCA helps convergence)
+
+### Implications
+
+**Tier 2.5 (Learnable Projector) is now a validated architectural tier:**
+- Same accuracy as Tier 3 with slightly fewer parameters
+- Requires PCA initialization from short dual-channel warmup
+- Projector must be learnable, not frozen
+- Per-layer basis required (no sharing across layers)
+
+**Do NOT use:**
+- Tier 2.5 Fixed (frozen PCA) — hurts performance
+- Universal correction basis — each layer needs its own
+
+**The echo itself is high-dimensional and layer-specific, but the correctable component is low-rank and learnable.** This is the key architectural insight: you don't model the echo, you model the correction function.
+
+Reference: GPU training notebook, PCA analysis, four-model comparison sweep.
+
+---
+
+*Analysis updated 2026-02-18. All experiments reproducible from listed scripts.*
