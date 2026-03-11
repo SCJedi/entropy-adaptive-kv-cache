@@ -1,0 +1,203 @@
+{
+  "test1": {
+    "seeds": [
+      42,
+      123,
+      789
+    ],
+    "consensus_acc": [
+      0.7405,
+      0.7415,
+      0.66
+    ],
+    "ensemble_acc": [
+      0.8115,
+      0.8125,
+      0.829
+    ],
+    "single_acc": [
+      0.803,
+      0.7975,
+      0.675
+    ],
+    "mean_consensus": 0.7140000000000001,
+    "mean_ensemble": 0.8176666666666668,
+    "mean_single": 0.7585000000000001,
+    "std_consensus": 0.038185948550044785,
+    "std_ensemble": 0.008024268744807128,
+    "diff": -0.10366666666666668,
+    "verdict": "NO",
+    "description": "Ensemble beats consensus by 10.4% -- standard ensembling is better"
+  },
+  "test2": {
+    "seeds": [
+      42,
+      123,
+      789
+    ],
+    "standard_1pass": [
+      0.661,
+      0.1935,
+      0.3665
+    ],
+    "standard_5pass": [
+      0.671,
+      0.186,
+      0.3585
+    ],
+    "consensus_T1": [
+      0.097,
+      0.1095,
+      0.089
+    ],
+    "consensus_T5": [
+      0.815,
+      0.7895,
+      0.1725
+    ],
+    "mean_standard_1pass": 0.40700000000000003,
+    "mean_standard_5pass": 0.4051666666666667,
+    "mean_consensus_T1": 0.09849999999999999,
+    "mean_consensus_T5": 0.5923333333333333,
+    "standard_settling_gain": -0.0018333333333333535,
+    "consensus_settling_gain": 0.4938333333333333,
+    "verdict": "YES",
+    "description": "Settling helps consensus (+49.4%) but not standard (+-0.2%) -- running avg mechanism is key"
+  },
+  "test3": {
+    "seeds": [
+      42,
+      123,
+      789
+    ],
+    "surprise_auroc": [
+      0.36402918255678884,
+      0.5450998030865318,
+      0.5769797276588291
+    ],
+    "entropy_auroc": [
+      0.7404531437573333,
+      0.48177037026357233,
+      0.49869550376812644
+    ],
+    "surprise_cohens_d": [
+      0.4880208768043012,
+      0.11966416094753167,
+      0.23957268855709432
+    ],
+    "mean_surprise_auroc": 0.4953695711007166,
+    "mean_entropy_auroc": 0.5736396725963441,
+    "mean_cohens_d": 0.2824192421029757,
+    "verdict": "NO",
+    "description": "Surprise AUROC=0.495 (d=0.282) -- not a useful confidence signal"
+  },
+  "test4": {
+    "seeds": [
+      42,
+      123,
+      789
+    ],
+    "surprise_auroc": [
+      0.44822184127228804,
+      0.4658958850986504,
+      0.49741093155100197
+    ],
+    "entropy_auroc": [
+      0.6782476517004699,
+      0.7015669241289003,
+      0.8067765214990639
+    ],
+    "max_softmax_auroc": [
+      0.6767484638942928,
+      0.7002154079267574,
+      0.8066127986337209
+    ],
+    "mean_surprise_auroc": 0.4705095526406468,
+    "mean_entropy_auroc": 0.728863699109478,
+    "mean_max_softmax_auroc": 0.7278588901515904,
+    "verdict": "NO",
+    "description": "Surprise AUROC (0.471) not useful for OOD (baselines: entropy=0.729, max-sm=0.728)"
+  },
+  "test5": {
+    "decay_rates": [
+      0.3,
+      0.5,
+      0.618,
+      0.7,
+      0.9
+    ],
+    "accuracies": {
+      "0.3": [
+        0.137,
+        0.1285,
+        0.1085
+      ],
+      "0.5": [
+        0.098,
+        0.2655,
+        0.089
+      ],
+      "0.618": [
+        0.808,
+        0.773,
+        0.152
+      ],
+      "0.7": [
+        0.8375,
+        0.822,
+        0.764
+      ],
+      "0.9": [
+        0.866,
+        0.853,
+        0.863
+      ]
+    },
+    "mean_accuracies": {
+      "0.3": 0.12466666666666666,
+      "0.5": 0.15083333333333335,
+      "0.618": 0.5776666666666667,
+      "0.7": 0.8078333333333333,
+      "0.9": 0.8606666666666666
+    },
+    "std_accuracies": {
+      "0.3": 0.011946640624971621,
+      "0.5": 0.08116478437242487,
+      "0.618": 0.30133075220133476,
+      "0.7": 0.03163419387659849,
+      "0.9": 0.005557777333511028
+    },
+    "best_decay": 0.9,
+    "best_acc": 0.8606666666666666,
+    "golden_acc": 0.5776666666666667,
+    "verdict": "NO",
+    "description": "0.618 (0.5777) is not optimal; best=0.9 (0.8607)"
+  },
+  "test6": {
+    "seeds": [
+      42,
+      123,
+      789
+    ],
+    "fixed_acc": [
+      0.815,
+      0.7895,
+      0.1725
+    ],
+    "cosine_acc": [
+      0.799,
+      0.8145,
+      0.7935
+    ],
+    "surprise_gated_acc": [
+      0.823,
+      0.8135,
+      0.8535
+    ],
+    "mean_fixed": 0.5923333333333333,
+    "mean_cosine": 0.8023333333333333,
+    "mean_surprise_gated": 0.83,
+    "verdict": "YES",
+    "description": "Surprise-gated (0.8300) beats fixed (0.5923) and cosine (0.8023)"
+  }
+}

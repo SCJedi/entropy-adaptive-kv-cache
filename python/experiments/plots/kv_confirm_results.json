@@ -1,0 +1,81 @@
+{
+  "test": "kv_cache_confirmation",
+  "model": "gpt2",
+  "num_prompts": 20,
+  "max_new_tokens": 30,
+  "runtime_seconds": 221.14508152008057,
+  "generation_comparison": {
+    "entropy_2x": {
+      "mean_bleu": 0.4068433417084393,
+      "std_bleu": 0.3185485072221843,
+      "mean_rouge_l": 0.5416666666666666,
+      "std_rouge_l": 0.2664321885792164,
+      "mean_token_match": 0.33333333333333337,
+      "std_token_match": 0.32335051500740736
+    },
+    "entropy_5x": {
+      "mean_bleu": 0.1579035134825743,
+      "std_bleu": 0.08078850456708726,
+      "mean_rouge_l": 0.2866666666666667,
+      "std_rouge_l": 0.138001610296563,
+      "mean_token_match": 0.09,
+      "std_token_match": 0.08034647195462633
+    },
+    "sink_recent_2x": {
+      "mean_bleu": 0.15835356212348622,
+      "std_bleu": 0.13793298519842215,
+      "mean_rouge_l": 0.22666666666666666,
+      "std_rouge_l": 0.1271918935222594,
+      "mean_token_match": 0.06166666666666668,
+      "std_token_match": 0.06348665651580303
+    },
+    "sink_recent_5x": {
+      "mean_bleu": 0.0801091138880256,
+      "std_bleu": 0.06074101011558398,
+      "mean_rouge_l": 0.11000000000000001,
+      "std_rouge_l": 0.07535103036971544,
+      "mean_token_match": 0.03333333333333333,
+      "std_token_match": 0.044721359549995794
+    }
+  },
+  "perplexity_comparison": {
+    "full": {
+      "mean_perplexity": 5.794321603852551,
+      "std_perplexity": 1.2535851506467548,
+      "median_perplexity": 5.7295392603638495
+    },
+    "entropy_2x": {
+      "mean_perplexity": 6.543358240966458,
+      "std_perplexity": 1.8154058470929224,
+      "median_perplexity": 6.116659268504932
+    },
+    "entropy_5x": {
+      "mean_perplexity": 10.890174399760786,
+      "std_perplexity": 4.045471904387647,
+      "median_perplexity": 9.817825895268044
+    },
+    "sink_recent_2x": {
+      "mean_perplexity": 14.578944174503231,
+      "std_perplexity": 5.546667741136894,
+      "median_perplexity": 14.351586210489671
+    },
+    "sink_recent_5x": {
+      "mean_perplexity": 65.16590818903559,
+      "std_perplexity": 29.786041964309586,
+      "median_perplexity": 59.19445706936733
+    }
+  },
+  "entropy_stability": {
+    "mean_abs_diff": 0.16861030154987602,
+    "max_abs_diff": 0.6456764698028565,
+    "correlation": 0.9750107260385713
+  },
+  "head_entropy_range": {
+    "cal1_min": 0.08877688670560815,
+    "cal1_max": 5.025298029184341,
+    "cal1_mean": 2.5839501061207417,
+    "cal2_min": 0.06364252927746747,
+    "cal2_max": 5.038479816913605,
+    "cal2_mean": 2.594664842148844
+  }
+}
