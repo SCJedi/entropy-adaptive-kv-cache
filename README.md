@@ -186,6 +186,8 @@ If you use the entropy-adaptive KV cache compression idea:
 
 MIT License. See [LICENSE](LICENSE) for details.
 
+Built by [Infinite Visions AI Agents](https://www.infinitevisionsaiagents.com) — we build AI systems that pay for themselves.
+
 ---
 
 *This research was conducted collaboratively between a human researcher and Claude (Anthropic). The repository documents the full arc honestly, including the many things that didn't work. Research is a search process; most paths are dead ends. The value is in what you learn from them.*
